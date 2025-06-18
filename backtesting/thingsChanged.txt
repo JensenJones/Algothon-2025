@@ -1,3 +1,3 @@
 in backtester.py:
--   RAW_PRICES_FILEPATH: str = "./backtesting/prices.txt" <---- changed the filepath to this from "./prices.txt" so that
+-   RAW_PRICES_FILEPATH: str = "../sourceCode/prices.txt" <---- changed the filepath to this from "./prices.txt" so that
     we run backtesting from the main directory (Algothon-2025)

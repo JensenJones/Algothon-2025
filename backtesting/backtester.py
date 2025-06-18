@@ -12,7 +12,7 @@ from importlib.machinery import ModuleSpec
 from types import ModuleType, FunctionType
 
 # CONSTANTS #######################################################################################
-RAW_PRICES_FILEPATH: str = "./backtesting/prices.txt"
+RAW_PRICES_FILEPATH: str = "../sourceCode/prices.txt"
 START_DAY: int = 0
 END_DAY: int = 0
 INSTRUMENT_POSITION_LIMIT: int = 10000
