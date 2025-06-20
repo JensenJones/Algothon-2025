@@ -1,15 +1,16 @@
-import pandas as pd
-from dateutil.rrule import weekday
-from pandas import DataFrame
-from typing import TypedDict, List, Dict, Any
-import numpy as np
-from numpy import ndarray
-import matplotlib.pyplot as plt
 import importlib.util
-import sys
 import os
+import sys
 from importlib.machinery import ModuleSpec
 from types import ModuleType, FunctionType
+from typing import TypedDict, List, Dict
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.axes import Axes
+from numpy import ndarray
+from pandas import DataFrame
 
 # CONSTANTS #######################################################################################
 RAW_PRICES_FILEPATH: str = "./sourceCode/prices.txt"
@@ -23,6 +24,7 @@ PLOT_COLORS: Dict[str, str] = {
     "pnl": "#2ca02c",
     "cum_pnl": "#1f77b4",
     "utilisation": "#ff7f0e",
+    "sharpe_change": "#d62728",
 }
 
 default_strategy_filepath: str = "./main.py"
@@ -37,7 +39,7 @@ strategy_function_not_callable_message: str = "getMyPosition function is not cal
 usage_error: str = """
     Usage: backtester.py [OPTIONS]
 
-    OPTIONS:
+    OPTIONS: You can only specify each option once 
     --path [filepath: string] supply a custom filepath to your .py file that holds your
         getMyPosition() function. If not specified, it will use the filepath "./main.py"
     --function-name [function_name: string] supply a custom 'getMyPositions' function name.
@@ -47,7 +49,33 @@ usage_error: str = """
         backtester in. start day >= 1 and end day <= 750. If not specified, backtester will run
         throughout days 1-750
     --disable-comms disable commission on trades
+    --show [graph1 graph2 ...] - specify which graphs to show. If this option is not specified, 
+        by default the backtester will show cumulative PnL, daily PnL and capital utilisation. A 
+        max of 3 graphs can be specified
+
+        Available graphs:
+            daily-pnl: graphs your daily profit and loss
+            cum-pnl: graphs your cumulative profit and loss over time
+            capital-util: graphs your total capital utilisation over time
+            sharpe-heat-map: graphs a heat map of the daily sharpe ratios your strategy had over 
+                time
+            cum-sharpe: graphs your cumulative sharpe ratio over time
 """
+
+CMD_LINE_OPTIONS: List[str] = [
+    "--path",
+    "--function-name",
+    "--timeline",
+    "--disable-comms",
+    "--show",
+]
+GRAPH_OPTIONS: List[str] = [
+    "daily-pnl",
+    "cum-pnl",
+    "capital-util",
+    "sharpe-heat-map",
+    "cum-sharpe",
+]
 
 
 # TYPE DECLARATIONS ###############################################################################
@@ -60,7 +88,9 @@ class InstrumentPriceEntry(TypedDict):
 class BacktesterResults(TypedDict):
     daily_pnl: ndarray
     daily_capital_utilisation: ndarray
-    instrument_traded: ndarray
+    daily_instrument_returns: ndarray
+    start_day: int
+    end_day: int
 
 
 class Params:
@@ -72,6 +102,7 @@ class Params:
             start_day: int = 1,
             end_day: int = 750,
             enable_commission: bool = True,
+            graphs: List[str] = ["cum-pnl", "sharpe-heat-map", "daily-pnl"],
     ) -> None:
         self.strategy_filepath = strategy_filepath
         self.strategy_function_name = strategy_function_name
@@ -79,6 +110,7 @@ class Params:
         self.start_day = start_day
         self.end_day = end_day
         self.enable_commission = enable_commission
+        self.graphs = graphs
 
 
 # HELPER FUNCTIONS ###############################################################################
@@ -119,6 +151,24 @@ def parse_command_line_args() -> Params:
                 else:
                     params.strategy_function_name = sys.argv[i + 1]
                     i += 1
+            elif current_arg == "--show":
+                if i + 1 >= total_args:
+                    raise Exception(usage_error)
+
+                params.graphs = []
+                i += 1
+                current_arg = sys.argv[i]
+                while current_arg not in CMD_LINE_OPTIONS:
+                    if current_arg not in GRAPH_OPTIONS or len(params.graphs) == 3:
+                        raise Exception(usage_error)
+
+                    params.graphs.append(current_arg)
+                    i += 1
+                    if i < total_args:
+                        current_arg = sys.argv[i]
+                    else:
+                        break
+                i -= 1
             else:
                 raise Exception(usage_error)
 
@@ -175,6 +225,181 @@ def load_get_positions_function(
     return function
 
 
+def generate_stats_subplot(
+        results: BacktesterResults, subplot: Axes, enable_commission: bool
+) -> Axes:
+    subplot.axis("off")
+
+    win_rate_pct: float = (
+            np.sum(results["daily_pnl"] > 0) / len(results["daily_pnl"]) * 100
+    )
+
+    stats_text: str = (
+            f"Ran from day {results["start_day"]} to {results["end_day"]}\n"
+            r"$\bf{Commission \ Turned \ On:}$" + f"{enable_commission}\n\n"
+                                                  r"$\bf{Backtester \ Stats}$" + "\n\n"
+                                                                                 f"Mean PnL: ${results["daily_pnl"].mean():.2f}\n"
+                                                                                 f"Std Dev: ${results["daily_pnl"].std():.2f}\n"
+                                                                                 f"Annualised Sharpe Ratio: "
+                                                                                 f"{np.sqrt(250) * results["daily_pnl"].mean() / results["daily_pnl"].std():.2f}\n"
+                                                                                 f"Win Rate %: {win_rate_pct:.2f}% \n"
+                                                                                 f"Score: {results["daily_pnl"].mean() - 0.1 * results["daily_pnl"].std():.2f}"
+    )
+
+    subplot.text(
+        0.05, 0.95, stats_text, fontsize=14, va="top", ha="left", linespacing=1.5
+    )
+
+    return subplot
+
+
+def generate_cumulative_pnl_subplot(results: BacktesterResults, subplot: Axes) -> Axes:
+    # Generate ndarray of cumulative PNl over time
+    cumulative_pnl: ndarray = np.cumsum(results["daily_pnl"])
+
+    # Generate ndarray of days
+    days: ndarray = np.arange(results["start_day"], results["end_day"] + 1)
+
+    # Generate subplot
+    subplot.set_title(
+        f"Cumulative Profit and Loss from day {results["start_day"]} to {results["end_day"]}",
+        fontsize=12,
+        fontweight="bold",
+    )
+    subplot.set_xlabel("Days", fontsize=10)
+    subplot.set_ylabel("Total PnL ($)", fontsize=10)
+    subplot.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+    subplot.spines["top"].set_visible(False)
+    subplot.spines["right"].set_visible(False)
+    subplot.plot(
+        days,
+        cumulative_pnl,
+        linestyle="-",
+        color=PLOT_COLORS["cum_pnl"],
+        linewidth=2,
+    )
+
+    return subplot
+
+
+def generate_daily_pnl_subplot(results: BacktesterResults, subplot: Axes) -> Axes:
+    # Generate ndarray of days
+    days: ndarray = np.arange(results["start_day"], results["end_day"] + 1)
+
+    # Generate Subplot
+    subplot.set_title(
+        f"Daily Profit and Loss (PnL) from day {results["start_day"]} to {results["end_day"]}",
+        fontsize=12,
+        fontweight="bold",
+    )
+    subplot.set_xlabel("Days", fontsize=10)
+    subplot.set_ylabel("PnL ($)", fontsize=10)
+    subplot.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+    subplot.spines["top"].set_visible(False)
+    subplot.spines["right"].set_visible(False)
+    subplot.plot(days, results["daily_pnl"], linestyle="-", color=PLOT_COLORS["pnl"])
+
+    return subplot
+
+
+def generate_capital_utilisation_subplot(
+        results: BacktesterResults, subplot: Axes
+) -> Axes:
+    # Transform daily capital utilisation into percentages
+    daily_capital_utilisation_pct: ndarray = results["daily_capital_utilisation"] * 100
+
+    # Generate ndarray of days
+    days: ndarray = np.arange(results["start_day"], results["end_day"] + 1)
+
+    subplot.set_title(
+        f"Daily capital utilisation from day {results["start_day"]} to {results["end_day"]}",
+        fontsize=12,
+        fontweight="bold",
+    )
+    subplot.set_xlabel("Days", fontsize=10)
+    subplot.set_ylabel("Capital Utilisation %", fontsize=10)
+    subplot.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+    subplot.spines["top"].set_visible(False)
+    subplot.spines["right"].set_visible(False)
+    subplot.set_ylim(0, 100)
+    subplot.plot(
+        days,
+        daily_capital_utilisation_pct,
+        linestyle="-",
+        color=PLOT_COLORS["utilisation"],
+    )
+
+    return subplot
+
+
+def generate_sharpe_heat_map(results: BacktesterResults, subplot: Axes) -> Axes:
+    # Generate ndarray of sharpe ratios for each instrument
+    returns: ndarray = results["daily_instrument_returns"]
+    means: ndarray = np.mean(returns, axis=1)
+    stds: ndarray = np.std(returns, axis=1)
+
+    sharpe_ratios: ndarray = (means / stds) * np.sqrt(250)
+
+    # Reshape grid into (1, 50) for the horizontal heatmap
+    sharpe_grid = sharpe_ratios.reshape(1, -1)
+
+    # Plot the heatmap
+    im = subplot.imshow(sharpe_grid, cmap="viridis", aspect="auto")
+    subplot.set_title("Annualised Sharpe-Ratio Heat Map (Higher = Better)", fontsize=12)
+    subplot.set_xticks(np.arange(len(sharpe_ratios)))
+    subplot.set_xticklabels([str(i) for i in range(len(sharpe_ratios))], fontsize=6)
+    subplot.set_yticks([])
+    color_bar = subplot.figure.colorbar(
+        im, ax=subplot, orientation="vertical", pad=0.01
+    )
+    color_bar.set_label("Sharpe", fontsize=9)
+
+    return subplot
+
+
+def generate_sharpe_ratio_subplot(results: BacktesterResults, subplot: Axes) -> Axes:
+    # Generate cumulative means and standard deviation
+    daily_pnl: ndarray = results["daily_pnl"]
+    counts: ndarray = np.arange(1, results["end_day"] - results["start_day"] + 2)
+    days: ndarray = np.arange(results["start_day"], results["end_day"] + 1)
+
+    cumulative_pnl: ndarray = np.cumsum(daily_pnl)
+    cumulative_means: ndarray = cumulative_pnl / counts
+    cumulative_std_dev: ndarray = np.array(
+        [np.std(daily_pnl[: i + 1], ddof=0) for i in range(len(daily_pnl))]
+    )
+
+    sharpe_ratios: ndarray = (cumulative_means / cumulative_std_dev) * np.sqrt(250)
+
+    subplot.set_title(
+        f"Change in Annualised Sharpe Ratio from day {results["start_day"]} to"
+        f" {results["end_day"]}",
+        fontsize=12,
+        fontweight="bold",
+    )
+    subplot.set_xlabel("Days", fontsize=10)
+    subplot.set_ylabel("Annualised Sharpe Ratio", fontsize=10)
+    subplot.grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
+    subplot.spines["top"].set_visible(False)
+    subplot.spines["right"].set_visible(False)
+    subplot.plot(days, sharpe_ratios, linestyle="-", color=PLOT_COLORS["sharpe_change"])
+
+    return subplot
+
+
+def get_subplot(graph_type: str, results: BacktesterResults, subplot: Axes) -> Axes:
+    if graph_type == "daily-pnl":
+        return generate_daily_pnl_subplot(results, subplot)
+    elif graph_type == "cum-pnl":
+        return generate_cumulative_pnl_subplot(results, subplot)
+    elif graph_type == "capital-util":
+        return generate_capital_utilisation_subplot(results, subplot)
+    elif graph_type == "sharpe-heat-map":
+        return generate_sharpe_heat_map(results, subplot)
+    elif graph_type == "cum-sharpe":
+        return generate_sharpe_ratio_subplot(results, subplot)
+
+
 # BACKTESTER CLASS ################################################################################
 class Backtester:
     def __init__(self, params: Params) -> None:
@@ -208,9 +433,15 @@ class Backtester:
         cash: float = 0
         portfolio_value: float = 0
 
-        # Initialise list of daily PnL's and capital utilisation
+        # Initialise history of past positions per instrument
+        position_history: Dict[int, list[int]]
+        position_history = {instrument: [0] for instrument in range(0, 51)}
+
+        # Initialise list of daily PnL's, capital utilisation and per instrument returns
         daily_pnl_list: List[float] = []
         daily_capital_utilisation_list: List[float] = []
+        instrument_returns: Dict[int, list[float]]
+        instrument_returns = {instrument: [0] for instrument in range(0, 51)}
 
         # Iterate through specified timeline
         for day in range(start_day, end_day + 1):
@@ -252,8 +483,10 @@ class Backtester:
             # Subtract money spent on new positions from cash
             cash -= current_prices.dot(delta_positions) + commission
 
-            # Update current positions
+            # Update current positions and add to position history
             current_positions = np.array(adjusted_positions)
+            for instrument in range(0, 50):
+                position_history[instrument].append(current_positions[instrument])
 
             # Get total value of all positions
             positions_value: float = current_positions.dot(current_prices)
@@ -261,6 +494,16 @@ class Backtester:
             # Calculate today's PnL and append it to list
             profit_and_loss: float = cash + positions_value - portfolio_value
             daily_pnl_list.append(profit_and_loss)
+
+            # Calculate today's return
+            if day > start_day + 1:
+                for instrument in range(0, 50):
+                    delta_price: float = (
+                            prices_so_far[instrument, -1] - prices_so_far[instrument, -2]
+                    )
+                    position: int = position_history[instrument][-2]
+                    instrument_return: float = delta_price * position
+                    instrument_returns[instrument].append(instrument_return)
 
             # Update portfolio value
             portfolio_value = cash + positions_value
@@ -270,100 +513,44 @@ class Backtester:
         backtester_results["daily_capital_utilisation"] = np.array(
             daily_capital_utilisation_list
         )
+        returns_list: List[List[float]] = [instrument_returns[i] for i in range(0, 50)]
+        backtester_results["daily_instrument_returns"] = np.array(returns_list)
+        backtester_results["start_day"] = start_day
+        backtester_results["end_day"] = end_day
 
         return backtester_results
 
     def show_dashboard(
-            self, backtester_results: BacktesterResults, start_day: int, end_day: int
+            self, backtester_results: BacktesterResults, graphs: List[str]
     ) -> None:
         """
         Generates and shows a dashboard that summarises a backtest's results. Shows stats such
         as mean PnL and sharpe ratio and plots cumulative PnL, Daily PnL and capital utilisation
         :param backtester_results: contains data on a backtest
-        :param start_day: start day of the backtest
-        :param end_day: end day of the backtest
+        :param graphs: list of graphs to be shown
         :return: None
         """
-        daily_pnl: ndarray = backtester_results["daily_pnl"]
-        daily_capital_utilisation: ndarray = backtester_results[
-            "daily_capital_utilisation"
-        ]
-
         fig, axs = plt.subplots(2, 2, figsize=(18, 8))
 
         # Show Stats
-        axs[0][0].axis("off")
-
-        stats_text: str = (
-                f"Ran from day {start_day} to {end_day}\n"
-                r"$\bf{Commission \ Turned \ On:}$" + f"{self.enable_commission}\n\n"
-                                                      r"$\bf{Backtester \ Stats}$" + "\n\n"
-                                                                                     f"Mean PnL: ${daily_pnl.mean():.2f}\n"
-                                                                                     f"Std Dev: ${daily_pnl.std():.2f}\n"
-                                                                                     f"Annualised Sharpe Ratio: {np.sqrt(250) * daily_pnl.mean() / daily_pnl.std():.2f}\n"
-                                                                                     f"Score: {daily_pnl.mean() - 0.1 * daily_pnl.std():.2f}"
+        axs[0][0] = generate_stats_subplot(
+            backtester_results, axs[0][0], self.enable_commission
         )
 
-        axs[0][0].text(
-            0.05, 0.95, stats_text, fontsize=14, va="top", ha="left", linespacing=1.5
-        )
+        # Get first subplot
+        axs[0][1] = get_subplot(graphs[0], backtester_results, axs[0][1])
 
-        days: ndarray = np.arange(start_day, end_day + 1)
+        # Get second subplot
+        if len(graphs) > 1:
+            axs[1][0] = get_subplot(graphs[1], backtester_results, axs[1][0])
+        else:
+            axs[1][0].axis("off")
 
-        # Plot Cumulative PnL over timeline
-        cumulative_pnl: ndarray = np.cumsum(daily_pnl)
-
-        axs[0][1].set_title(
-            f"Cumulative Profit and Loss from day {start_day} to {end_day}",
-            fontsize=12,
-            fontweight="bold",
-        )
-        axs[0][1].set_xlabel("Days", fontsize=10)
-        axs[0][1].set_ylabel("Total PnL ($)", fontsize=10)
-        axs[0][1].grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        axs[0][1].spines["top"].set_visible(False)
-        axs[0][1].spines["right"].set_visible(False)
-        axs[0][1].plot(
-            days,
-            cumulative_pnl,
-            linestyle="-",
-            color=PLOT_COLORS["cum_pnl"],
-            linewidth=2,
-        )
-
-        # Plot PnL over timeline
-        axs[1][0].set_title(
-            f"Daily Profit and Loss (PnL) from day {start_day} to {end_day}",
-            fontsize=12,
-            fontweight="bold",
-        )
-        axs[1][0].set_xlabel("Days", fontsize=10)
-        axs[1][0].set_ylabel("PnL ($)", fontsize=10)
-        axs[1][0].grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        axs[1][0].spines["top"].set_visible(False)
-        axs[1][0].spines["right"].set_visible(False)
-        axs[1][0].plot(days, daily_pnl, linestyle="-", color=PLOT_COLORS["pnl"])
-
-        # Plot daily capital utilisation
-        daily_capital_utilisation_pct: ndarray = daily_capital_utilisation * 100
-
-        axs[1][1].set_title(
-            f"Daily capital utilisation from day {start_day} to {end_day}",
-            fontsize=12,
-            fontweight="bold",
-        )
-        axs[1][1].set_xlabel("Days", fontsize=10)
-        axs[1][1].set_ylabel("Capital Utilisation %", fontsize=10)
-        axs[1][1].grid(True, linestyle="--", linewidth=0.5, alpha=0.7)
-        axs[1][1].spines["top"].set_visible(False)
-        axs[1][1].spines["right"].set_visible(False)
-        axs[1][1].set_ylim(0, 100)
-        axs[1][1].plot(
-            days,
-            daily_capital_utilisation_pct,
-            linestyle="-",
-            color=PLOT_COLORS["utilisation"],
-        )
+        # Get third subplot
+        if len(graphs) > 2:
+            axs[1][1] = get_subplot(graphs[2], backtester_results, axs[1][1])
+        else:
+            axs[1][1].axis("off")
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.88)
@@ -378,7 +565,7 @@ def main() -> None:
     backtester_results: BacktesterResults = backtester.run(
         params.start_day, params.end_day
     )
-    backtester.show_dashboard(backtester_results, params.start_day, params.end_day)
+    backtester.show_dashboard(backtester_results, params.graphs)
 
 
 main()

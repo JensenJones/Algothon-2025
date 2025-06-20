@@ -12,7 +12,7 @@ def main():
     plt.xlabel("Day")
     plt.ylabel("Price")
     plt.grid(True)
-    plt.show()
+    plt.savefig("AllInstrumentsVisualised_750Days", dpi = 200)
 
 
 if __name__ == "__main__":
