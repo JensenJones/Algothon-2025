@@ -1,6 +1,7 @@
 import numpy as np
 
 
+# I don't know why I made this, I don't have any use for it yet, it's a bit messy
 class Greeks:
     def __init__(self, prices: np.ndarray, histVolWindowSize, rollingMeanWindowSize):
         super().__init__()
