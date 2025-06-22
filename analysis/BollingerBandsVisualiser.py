@@ -1,3 +1,4 @@
+import re
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,6 +6,7 @@ import matplotlib.pyplot as plt
 
 def main():
     filePath = sys.argv[1]
+    windowSize = [int(match.group()) for match in re.finditer(r'\d+', filePath)][0]
 
     bollBandsAndPrices = []
     with open(filePath, "rb") as logFile:
@@ -16,13 +18,13 @@ def main():
 
     bollBandsAndPrices = np.stack(bollBandsAndPrices, axis = 1)
 
-    saveGraphs(bollBandsAndPrices)
+    saveGraphs(bollBandsAndPrices, windowSize)
 
 
-def saveGraphs(bollBandsAndPrices):
+def saveGraphs(bollBandsAndPrices, windowSize):
     rows, cols = 50, 1  # for 50 instruments
     fig, axes = plt.subplots(rows, cols, figsize=(8, 150))
-    fig.suptitle("Bollinger Bands for All Instruments", fontsize=20)
+    fig.suptitle(f"Bollinger Bands for All Instruments (windowSize = {windowSize})", fontsize=20)
 
     for i in range(50):
         r, c = divmod(i, cols)
@@ -48,7 +50,7 @@ def saveGraphs(bollBandsAndPrices):
     fig.legend(handles, labels, loc='upper right', fontsize=10)
     plt.subplots_adjust(hspace=0.4)
     plt.tight_layout(rect=(0, 0, 0.95, 0.97))  # Leave space for title + legend
-    plt.savefig("./analysis/AllInstrumentsBollBandsPrices.png", dpi=250, bbox_inches="tight")
+    plt.savefig(f"./analysis/AllInstrumentsBollBandsPrices_WindowSize={windowSize}.png", dpi=250, bbox_inches="tight")
 
 
 if __name__ == "__main__":

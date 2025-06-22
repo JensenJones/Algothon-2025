@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-from teamName import getMyPosition as getPosition
 
 nInst = 0
 nt = 0
@@ -13,7 +12,7 @@ def loadPrices(fn):
     global nt, nInst
     df=pd.read_csv(fn, sep='\s+', header=None, index_col=None)
     (nt,nInst) = df.shape
-    return (df.values).T
+    return df.values.T
 
 pricesFile="./priceSlice_test.txt"
 prcAll = loadPrices(pricesFile)
