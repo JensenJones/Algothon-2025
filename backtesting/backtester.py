@@ -91,6 +91,8 @@ class BacktesterResults(TypedDict):
     daily_instrument_returns: ndarray
     start_day: int
     end_day: int
+    per_instrument_pnl: ndarray
+    per_instrument_max_position_dollar: ndarray
 
 
 class Params:
@@ -518,6 +520,19 @@ class Backtester:
         backtester_results["start_day"] = start_day
         backtester_results["end_day"] = end_day
 
+        # ADDED ----------------------------------------
+        per_instrument_pnl: ndarray = np.sum(backtester_results["daily_instrument_returns"], axis=1)
+        backtester_results["per_instrument_pnl"] = per_instrument_pnl
+
+        max_positions_dollar = np.array([
+            max(abs(pos) for pos in position_history[i]) * prices_so_far[i, -1]
+            for i in range(NUMBER_OF_INSTRUMENTS)
+        ])
+
+        backtester_results["per_instrument_max_position_dollar"] = max_positions_dollar
+
+        # ADDED ----------------------------------------
+
         return backtester_results
 
     def show_dashboard(
@@ -557,6 +572,27 @@ class Backtester:
         plt.suptitle("Backtest Performance Summary", fontsize=16, fontweight="bold")
         plt.show()
 
+    def show_per_instrument_stats(self, results: BacktesterResults) -> None:
+        pnl = results["per_instrument_pnl"]
+        max_pos = results["per_instrument_max_position_dollar"]
+        instruments = np.arange(NUMBER_OF_INSTRUMENTS)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+        ax1.bar(instruments, pnl)
+        ax1.set_title("Per-Instrument Cumulative PnL")
+        ax1.set_ylabel("Profit ($)")
+        ax1.grid(True, linestyle="--", alpha=0.5)
+
+        ax2.bar(instruments, max_pos, color="#ff7f0e")
+        ax2.set_title("Per-Instrument Max Position Held (Dollar Value)")
+        ax2.set_xlabel("Instrument")
+        ax2.set_ylabel("Position Size ($)")
+        ax2.grid(True, linestyle="--", alpha=0.5)
+
+        plt.tight_layout()
+        plt.show()
+
 
 # MAIN EXECUTION #################################################################################
 def main() -> None:
@@ -567,5 +603,6 @@ def main() -> None:
     )
     backtester.show_dashboard(backtester_results, params.graphs)
 
+    backtester.show_per_instrument_stats(backtester_results)
 
 main()

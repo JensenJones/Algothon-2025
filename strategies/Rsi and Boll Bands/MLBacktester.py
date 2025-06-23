@@ -1,8 +1,8 @@
 import numpy as np
-import pandas as pd
+
 from BbCalculator import BollingerBandsCalculator
-from RsiCalculator import RsiCalculator
 from RsiBbTraderSingleInstrument import RsiBollingerBandsTrader as RsiBbTrader
+from RsiCalculator import RsiCalculator
 
 INSTRUMENT_POSITION_LIMIT = 10000
 COMMISSION_RATE = 0.0005
@@ -13,16 +13,12 @@ class SimpleBacktester:
         self.commission_enabled = commission_enabled
         self.prices = prices
 
-    def run(self, startDay: int, endDay: int, params, instIndex: int) -> dict:
+    def run(self, params, instIndex: int) -> dict:
         prices = self.prices[instIndex, :]  # shape: (num_days,)
         n_days = prices.shape[0]
         # Defensive: don't run past available prices
-        endDay = min(endDay, n_days)
         # Make sure window fits
         window = int(params[0])
-
-        if endDay <= startDay + window:
-            raise ValueError("Not enough days for window and trading.")
 
         # Set up
         position = 0.0
@@ -31,17 +27,17 @@ class SimpleBacktester:
         dailyPL = []
 
         # Initialize indicators with window size
-        pricesSoFar = prices[startDay : startDay + window].reshape(1, -1)
+        pricesSoFar = prices[0 : window].reshape(1, -1)
         bbC = BollingerBandsCalculator(pricesSoFar, window)
         rsiC = RsiCalculator(pricesSoFar, window)
         trader = RsiBbTrader(None, pricesSoFar, bbC, rsiC, params[1], params[2], params[3])
 
-        for day in range(startDay + window, endDay):
+        for day in range(window, n_days):
             newPrice = prices[day]  # scalar
             prevPosition = position
 
             # No trading on last day
-            if day < endDay - 1:
+            if day < n_days:
                 new_position = trader.updatePosition(np.array([newPrice]), np.array([prevPosition]))
                 # Get first element, since single instrument
                 new_position = new_position[0] if isinstance(new_position, np.ndarray) else float(new_position)

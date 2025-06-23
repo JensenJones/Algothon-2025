@@ -26,6 +26,7 @@ def saveGraphs(bollBandsAndPrices, windowSize):
     fig.suptitle(f"Bollinger Bands + RSI (windowSize = {windowSize})", fontsize=20)
 
     for i in range(50):
+        filePath =  f"Instr{i}_log_file_bb_rsi_divergence.png"
         instrument = bollBandsAndPrices[i]
         days = np.arange(instrument.shape[0])
 
