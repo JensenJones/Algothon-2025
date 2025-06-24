@@ -178,6 +178,67 @@ def parse_command_line_args() -> Params:
 
     return params
 
+def parse_command_line_args_as_params(argvInput) -> Params:
+    total_args: int = len(argvInput)
+    params: Params = Params()
+
+    if total_args > 1:
+        i: int = 0
+        while i < total_args:
+            current_arg: str = argvInput[i]
+
+            if current_arg == "--path":
+                if i + 1 >= total_args:
+                    raise Exception(usage_error)
+                else:
+                    i += 1
+                    params.strategy_filepath = argvInput[i]
+            elif current_arg == "--timeline":
+                if i + 2 >= total_args:
+                    raise Exception(usage_error)
+                else:
+                    params.start_day = int(argvInput[i + 1])
+                    params.end_day = int(argvInput[i + 2])
+                    i += 2
+
+                    if (
+                            params.start_day > params.end_day
+                            or params.start_day < 1
+                            or params.end_day > 750
+                    ):
+                        raise Exception(usage_error)
+            elif current_arg == "--disable-comms":
+                params.enable_commission = False
+            elif current_arg == "--function-name":
+                if i + 1 >= total_args:
+                    raise Exception(usage_error)
+                else:
+                    params.strategy_function_name = argvInput[i + 1]
+                    i += 1
+            elif current_arg == "--show":
+                if i + 1 >= total_args:
+                    raise Exception(usage_error)
+
+                params.graphs = []
+                i += 1
+                current_arg = argvInput[i]
+                while current_arg not in CMD_LINE_OPTIONS:
+                    if current_arg not in GRAPH_OPTIONS or len(params.graphs) == 3:
+                        raise Exception(usage_error)
+
+                    params.graphs.append(current_arg)
+                    i += 1
+                    if i < total_args:
+                        current_arg = argvInput[i]
+                    else:
+                        break
+                i -= 1
+            else:
+                raise Exception(usage_error)
+
+            i += 1
+
+    return params
 
 def load_get_positions_function(
         strategy_filepath: str, strategy_function_name: str
@@ -605,4 +666,5 @@ def main() -> None:
 
     backtester.show_per_instrument_stats(backtester_results)
 
-main()
+if __name__ == '__main__':
+    main()

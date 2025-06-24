@@ -1,6 +1,6 @@
 import numpy as np
 
-from greeks.Greek import Greek
+from greeks.GreekBaseClass import Greek
 
 
 class RollingMeans(Greek):
@@ -14,7 +14,7 @@ class RollingMeans(Greek):
         if pricesFillWindow:
             self.rollingMean = np.mean(self.prices, axis = 1)
         else:
-            self.rollingMean = None
+            self.rollingMean = np.zeros(self.prices.shape[0])
 
     def update(self, newDayPrices: np.ndarray):
         self.prices = np.hstack((self.prices, newDayPrices.reshape(-1, 1)))

@@ -22,7 +22,11 @@ class RsiCalculator:
 
         self.prices = self.prices[:, -self.windowSize:]
 
-        self.calculateRsi(newDayPrices)
+        if self.prices.shape[1] == self.windowSize:
+            self.initialiseAverages()
+
+        if self.prices.shape[1] > self.windowSize:
+            self.calculateRsi(newDayPrices)
 
     def initialiseAverages(self):
         delta = np.diff(self.prices[:, -self.windowSize:], axis=1)

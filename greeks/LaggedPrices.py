@@ -1,9 +1,9 @@
 import numpy as np
 
-from greeks.Greek import Greek
+from greeks.GreekBaseClass import Greek
 
 
-class LaggedPricesGreek(Greek):
+class LaggedPrices(Greek):
     def __init__(self, pricesSoFar: np.ndarray, lag):
         super().__init__()
 
@@ -15,7 +15,7 @@ class LaggedPricesGreek(Greek):
         if pricesFillWindow:
             self.lagPrices = pricesSoFar[:, -(lag + 1)]
         else:
-            self.lagPrices = None
+            self.lagPrices = np.zeros(self.prices.shape[0])
 
 
     def update(self, newDayPrices: np.ndarray):
