@@ -14,7 +14,7 @@ class RollingMeans(Greek):
         if pricesFillWindow:
             self.rollingMean = np.mean(self.prices, axis = 1)
         else:
-            self.rollingMean = np.zeros(self.prices.shape[0])
+            self.rollingMean = np.full(self.prices.shape[0], np.nan)
 
     def update(self, newDayPrices: np.ndarray):
         self.prices = np.hstack((self.prices, newDayPrices.reshape(-1, 1)))
