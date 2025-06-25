@@ -12,7 +12,8 @@ from greeks.RsiSingleDirection import RsiSingleDirection
 import numpy as np
 
 
-LAG = 1
+LAG_START_RANGE = 1
+LAG_END_RANGE = 6
 ROLLING_MEANS_WINDOW_SIZE = 14
 RSIC_WINDOW_SIZE = 14
 RSI_LONG_THRESHOLD = 30
@@ -25,11 +26,11 @@ def main():
     longRsiC = RsiCalculator(pricesSoFar, RSIC_WINDOW_SIZE)
     shortRsiC = RsiCalculator(pricesSoFar, RSIC_WINDOW_SIZE)
 
-    greeks = [LaggedPrices(pricesSoFar, LAG),
-              LogReturns(pricesSoFar),
-              RollingMeans(pricesSoFar, ROLLING_MEANS_WINDOW_SIZE),
-              RsiSingleDirection(longRsiC, "long", RSI_LONG_THRESHOLD),
-              RsiSingleDirection(shortRsiC, "short", RSI_SHORT_THRESHOLD)]
+    lagged_prices_greeks = [LaggedPrices(pricesSoFar, lag) for lag in range(LAG_START_RANGE, LAG_END_RANGE)]
+    greeks = lagged_prices_greeks + [LogReturns(pricesSoFar),
+                                     RollingMeans(pricesSoFar, ROLLING_MEANS_WINDOW_SIZE),
+                                     RsiSingleDirection(longRsiC, "long", RSI_LONG_THRESHOLD),
+                                     RsiSingleDirection(shortRsiC, "short", RSI_SHORT_THRESHOLD)]
     gm = GreeksManager(greeks)
 
     produceGreeksData(gm)
@@ -39,13 +40,16 @@ def produceGreeksData(gm):
     toLog = {}
 
     for i in range(1, prices.shape[1]):
-        gm.update(prices[:, i - 1:i])
+        gm.update(prices[:, i:i+1])
 
         for greek in gm.getGreeks():
             greek_name = greek.__class__.__name__
 
             if hasattr(greek, 'direction'):
                 greek_name += f"_{greek.direction}"
+
+            if hasattr(greek, 'lag'):
+                greek_name += f"_Lag={greek.lag}"
 
             if greek_name not in toLog:
                 toLog[greek_name] = []

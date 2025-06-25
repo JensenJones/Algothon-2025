@@ -11,7 +11,7 @@ class RsiSingleDirection(Greek):
         self.rsic = rsic
         self.direction = direction
         self.threshold = threshold
-        self.signal = np.zeros(self.rsic.prices.shape[0])
+        self.signal = np.full(self.rsic.prices.shape[0], np.nan)
 
         rsi = rsic.getRsi()
         if rsi is not None:

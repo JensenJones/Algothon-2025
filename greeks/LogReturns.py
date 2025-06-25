@@ -8,7 +8,7 @@ class LogReturns(Greek):
         super().__init__()
 
         self.prices = pricesSoFar[:, -2:] if pricesSoFar.shape[1] > 2 else pricesSoFar.copy()
-        self.logReturns = np.zeros(self.prices.shape[0])
+        self.logReturns = np.full(self.prices.shape[0], np.nan)
 
         self.setDayIncrease()
 

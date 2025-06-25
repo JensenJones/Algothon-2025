@@ -15,7 +15,7 @@ class LaggedPrices(Greek):
         if pricesFillWindow:
             self.lagPrices = pricesSoFar[:, -(lag + 1)]
         else:
-            self.lagPrices = np.zeros(self.prices.shape[0])
+            self.lagPrices = np.full(self.prices.shape[0], np.nan)
 
 
     def update(self, newDayPrices: np.ndarray):
