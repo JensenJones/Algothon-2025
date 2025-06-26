@@ -23,7 +23,7 @@ CV_START_DAY = 400
 CV_END_DAY = 500
 TEST_START_DAY = 500
 
-EPOCHS = 100  # Reduced epochs
+EPOCHS = 200  # Reduced epochs
 BATCH_SIZE = 32  # Smaller batch size for stability
 LEARNING_RATE = 0.0005  # Lower learning rate
 DROPOUT_RATE = 0.4  # Increased dropout
@@ -332,9 +332,23 @@ class ImprovedPricePredictor:
         )
 
         # Evaluate model
-        self.evaluate_model(X_test_scaled, y_test_scaled)
+        eval_result = self.evaluate_model(X_test_scaled, y_test_scaled)
 
-        return history
+        # Build full dataset from TRAINING_START_DAY
+        total_start = TRAINING_START_DAY if not use_sequences else TRAINING_START_DAY - SEQUENCE_LENGTH
+        X_full = X[total_start:]
+        y_full = y[total_start:]
+
+        # Scale full data
+        if use_sequences:
+            X_flat = X_full.reshape(-1, X_full.shape[-1])
+            X_full_scaled = self.scaler_X.transform(X_flat).reshape(X_full.shape)
+        else:
+            X_full_scaled = self.scaler_X.transform(X_full)
+
+        y_full_scaled = self.scaler_y.transform(y_full)
+
+        return history, X_full_scaled, y_full_scaled, eval_result
 
     def evaluate_model(self, X_test_scaled, y_test_scaled):
         """Comprehensive model evaluation with error handling"""
@@ -408,6 +422,52 @@ class ImprovedPricePredictor:
         plt.tight_layout()
         plt.show()
 
+    def plot_price_predictions(self, X_scaled, y_scaled, instrument_names=None, start_day=0, initial_prices=None):
+        """
+        Plot actual vs predicted price series reconstructed from log returns.
+        """
+        y_pred_scaled = self.model.predict(X_scaled, verbose=0)
+
+        # Inverse scale log returns
+        y_pred_logret = self.scaler_y.inverse_transform(y_pred_scaled)
+        y_true_logret = self.scaler_y.inverse_transform(y_scaled)
+
+        # Replace NaNs/Infs
+        y_pred_logret = np.nan_to_num(y_pred_logret, nan=0.0, posinf=0.0, neginf=0.0)
+        y_true_logret = np.nan_to_num(y_true_logret, nan=0.0, posinf=0.0, neginf=0.0)
+
+        if instrument_names is None:
+            instrument_names = [f"Instrument {i + 1}" for i in range(y_true_logret.shape[1])]
+
+        num_instruments = y_true_logret.shape[1]
+        cols = 2
+        rows = int(np.ceil(num_instruments / cols))
+
+        plt.figure(figsize=(15, rows * 3))
+
+        for i in range(num_instruments):
+            # Reconstruct price paths from log returns using cumulative product of exp(logret)
+            pred_prices = np.exp(np.cumsum(y_pred_logret[:, i]))
+            true_prices = np.exp(np.cumsum(y_true_logret[:, i]))
+
+            # Optionally re-anchor to actual starting price
+            if initial_prices is not None:
+                pred_prices *= initial_prices[i]
+                true_prices *= initial_prices[i]
+
+            plt.subplot(rows, cols, i + 1)
+            plt.plot(true_prices, label='Actual Price', alpha=0.8)
+            plt.plot(pred_prices, label='Predicted Price', alpha=0.8)
+            plt.title(instrument_names[i])
+            plt.xlabel('Time Steps')
+            plt.ylabel('Price')
+            plt.grid(True)
+            plt.legend()
+
+        plt.tight_layout()
+        plt.show()
+
+
 # Main execution
 def main():
     predictor = ImprovedPricePredictor()
@@ -422,8 +482,19 @@ def main():
         print(f"{'=' * 50}")
 
         try:
-            history = predictor.train_model(model_type=model_type, use_robust_scaler=True)
+            history, X_full_scaled, y_full_scaled, eval_result = predictor.train_model(
+                model_type=model_type, use_robust_scaler=True
+            )
+
             predictor.plot_training_history(history)
+
+            predictor.plot_price_predictions(
+                X_full_scaled,
+                y_full_scaled,
+                start_day=TRAINING_START_DAY,
+                initial_prices=predictor.prices[:, TRAINING_START_DAY]
+            )
+
         except Exception as e:
             print(f"Error training {model_type} model: {e}")
             continue
