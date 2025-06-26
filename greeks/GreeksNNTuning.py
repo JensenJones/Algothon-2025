@@ -1,19 +1,16 @@
-import sys
-import os
 import glob
+import os
+import sys
 
 from matplotlib import pyplot as plt
-from tensorboard.plugins.scalar.summary import scalar
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-import backtesting.backtester as bt
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
-from tensorflow.keras.callbacks import EarlyStopping
 
 from sklearn.preprocessing import StandardScaler
 
@@ -47,7 +44,7 @@ def main():
     greeksFilePaths = (
             lagged_paths +
             [
-        # "./greeks/greeksData/LaggedPrices_lag=1_750_day_data.npy",
+        "./greeks/greeksData/LaggedPrices_lag=1_750_day_data.npy",
         "./greeks/greeksData/BollingerBandsSingleDirection_focusBand=lower_750_day_data.npy",
         "./greeks/greeksData/BollingerBandsSingleDirection_focusBand=upper_750_day_data.npy",
         "./greeks/greeksData/RollingMeans_750_day_data.npy",
@@ -78,9 +75,39 @@ def trainNN():
 
     model = createAndTrainModel(X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled)
 
-    plotPredictedLogReturns(model, X_test_scaled, y_test_scaled, scaler_y, "Test data time series prediction of log returns", 1)
-    plotPredictedLogReturns(model, scaler_X.transform(X[TRAINING_START_DAY:]), scaler_y.transform(y[TRAINING_START_DAY:]), scaler_y, "All time data time series prediction of log returns", 1)
-    plotPredictedPrices(model, scaler_X.transform(X[TRAINING_START_DAY:]), scaler_y.transform(y[TRAINING_START_DAY:]), scaler_y, "All time data time series prediction of prices", 1, prices[1, TRAINING_START_DAY])
+    print(f"prices shape = {prices.shape}")
+    print(f"logReturns shape = {logReturns.shape}")
+    for i in range(logReturns.shape[1]):
+        plotPredictedPrices(model,
+                            scaler_X.transform(X[TRAINING_START_DAY:]),
+                            scaler_y.transform(y[TRAINING_START_DAY:]),
+                            scaler_y,
+                            "All time data time series prediction of prices",
+                            i,
+                            prices[TRAINING_START_DAY, i])
+
+    total_train_loss = model.evaluate(
+        scaler_X.transform(X[TRAINING_START_DAY:]),
+        scaler_y.transform(y[TRAINING_START_DAY:])[:, i],
+        verbose=0
+    )
+
+    total_cv_loss = model.evaluate(
+        scaler_X.transform(X[CV_START_DAY:CV_END_DAY]),
+        scaler_y.transform(y[CV_START_DAY:CV_END_DAY])[:, i],
+        verbose=0
+    )
+
+    total_test_loss = model.evaluate(
+        scaler_X.transform(X[TEST_START_DAY:]),
+        scaler_y.transform(y[TEST_START_DAY:])[:, i],
+        verbose=0
+    )
+
+    print(f"Avg Train Loss: {total_train_loss / 50:.6f}")
+    print(f"Avg CV Loss: {total_cv_loss / 50:.6f}")
+    print(f"Avg Test Loss: {total_test_loss / 50:.6f}")
+
 
 def plotPredictedPrices(model, X_scaled, y_scaled, scaler_y, plotTitle, instrument, initial_price):
     predicted_y_test_scaled = model.predict(X_scaled)
@@ -95,7 +122,7 @@ def plotPredictedPrices(model, X_scaled, y_scaled, scaler_y, plotTitle, instrume
     plt.plot(actual_prices, label="Actual", alpha=0.7)
     plt.title(f"{plotTitle}, instrument = {instrument}")
     plt.xlabel("Day")
-    plt.ylabel("Log Return")
+    plt.ylabel("Price")
     plt.legend()
     plt.grid(True)
     plt.show()

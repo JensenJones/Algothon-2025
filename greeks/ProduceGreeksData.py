@@ -3,6 +3,8 @@ import os
 
 from greeks.BollingerBandsCalculator import BollingerBandsCalculator
 from greeks.BollingerBandsSingleDirection import BollingerBandsSingleDirection
+from greeks.Momentum import Momentum
+from greeks.Volatility import Volatility
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -15,9 +17,10 @@ from greeks.RsiSingleDirection import RsiSingleDirection
 
 import numpy as np
 
-
 LAG_START_RANGE = 1
 LAG_END_RANGE = 6
+VOL_WINDOWS = [5, 10, 20]
+MOMENTUM_WINDOWS = [3, 7, 14]
 ROLLING_MEANS_WINDOW_SIZE = 14
 RSIC_WINDOW_SIZE = 14
 RSI_LONG_THRESHOLD = 30
@@ -25,6 +28,7 @@ RSI_SHORT_THRESHOLD = 70
 BB_WINDOW_SIZE = 20
 
 prices = np.loadtxt("./sourceCode/prices.txt").T
+
 
 def main():
     pricesSoFar = prices[:, 0:1]
@@ -36,18 +40,25 @@ def main():
 
     def lowerBbComp(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         return (a < b).astype(int)
+
     def upperBbComp(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         return (a > b).astype(int)
 
     lagged_prices_greeks = [LaggedPrices(pricesSoFar, lag) for lag in range(LAG_START_RANGE, LAG_END_RANGE)]
-    greeks = lagged_prices_greeks + [
-                                     LogReturns(pricesSoFar),
-                                     RollingMeans(pricesSoFar, ROLLING_MEANS_WINDOW_SIZE),
-                                     RsiSingleDirection(longRsiC, "long", RSI_LONG_THRESHOLD),
-                                     RsiSingleDirection(shortRsiC, "short", RSI_SHORT_THRESHOLD),
-                                     BollingerBandsSingleDirection(pricesSoFar, lowerBbc, "lower", lowerBbComp),
-                                     BollingerBandsSingleDirection(pricesSoFar, upperBbc, "upper", upperBbComp)
-                                     ]
+    vol_greeks = [Volatility(pricesSoFar, window) for window in VOL_WINDOWS]
+    momentum_greeks = [Momentum(pricesSoFar, window) for window in MOMENTUM_WINDOWS]
+    greeks = (
+            lagged_prices_greeks +
+            vol_greeks +
+            momentum_greeks +
+            [
+                LogReturns(pricesSoFar),
+                RollingMeans(pricesSoFar, ROLLING_MEANS_WINDOW_SIZE),
+                RsiSingleDirection(longRsiC, "long", RSI_LONG_THRESHOLD),
+                RsiSingleDirection(shortRsiC, "short", RSI_SHORT_THRESHOLD),
+                BollingerBandsSingleDirection(pricesSoFar, lowerBbc, "lower", lowerBbComp),
+                BollingerBandsSingleDirection(pricesSoFar, upperBbc, "upper", upperBbComp)
+            ])
     gm = GreeksManager(greeks)
 
     produceGreeksData(gm)
@@ -57,7 +68,7 @@ def produceGreeksData(gm):
     toLog = {}
 
     for i in range(1, prices.shape[1]):
-        gm.update(prices[:, i:i+1])
+        gm.update(prices[:, i:i + 1])
 
         for greek in gm.getGreeks():
             greek_name = greek.__class__.__name__
@@ -71,16 +82,18 @@ def produceGreeksData(gm):
             if hasattr(greek, 'focusBand'):
                 greek_name += f"_focusBand={greek.focusBand}"
 
+            if hasattr(greek, 'windowSize'):
+                greek_name += f"_windowSize={greek.windowSize}"
+
             if greek_name not in toLog:
                 toLog[greek_name] = []
 
-            assert(greek.getGreeks().shape[0] == 50)
+            assert greek.getGreeks().shape[0] == 50, f"{greek_name} has shape = {greek.getGreeks().shape}"
             toLog[greek_name].append(greek.getGreeks())
 
     for greekToLog, listOfGreeks in toLog.items():
         print(f"Appending greeks of name {greekToLog}\nShape: {np.stack(listOfGreeks).shape}\n")
         np.save(f"./greeks/greeksData/{greekToLog}_750_day_data.npy", np.stack(listOfGreeks))
-
 
 
 if __name__ == '__main__':
