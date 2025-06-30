@@ -40,7 +40,7 @@ EPOCHS = 40
 # ===========================================
 
 pricesFilePath: str = "./sourceCode/prices.txt"
-logReturnsFilePath = "./greeks/greeksData/LogReturns_750_day_data.npy"
+logReturnsFilePath = "./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy"
 modelSaveFilePath = "./greeks/LSTM/Best_LSTM_Produced.keras"
 prices = np.loadtxt(pricesFilePath)
 logReturns = np.load(logReturnsFilePath)
