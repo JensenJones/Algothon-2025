@@ -52,7 +52,7 @@ backtester = None
 def main():
     global prices, logReturns, features, params, backtester
     prices = np.loadtxt("./sourceCode/prices.txt")
-    logReturns = np.load("./greeks/greeksData/LogReturns_750_day_data.npy")
+    logReturns = np.load("./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy")
 
     lagged_paths = sorted([
         f for f in glob.glob("./greeks/greeksData/LaggedPrices_Lag=*_750_day_data.npy")

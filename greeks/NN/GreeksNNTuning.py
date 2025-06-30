@@ -31,13 +31,13 @@ TEST_START_DAY = 625
 TEST_END_DAY = 750
 
 EPOCHS = 1000
-BATCH_SIZE = 32 # Number of training examples used to compute one gradient update
-LEARNING_RATE = 0.0006
+BATCH_SIZE = 20 # Number of training examples used to compute one gradient update
+LEARNING_RATE = 0.001
 DROPOUT_RATE = 0.0 # ratio of neurons randomly dropped in training
-L1_REGULARIZATION = 0e-4  # Increase if too many irrelevant features
-L2_REGULARIZATION = 0e-4  # Increase if overfitting
+L1_REGULARIZATION = 0e-7  # Increase if too many irrelevant features
+L2_REGULARIZATION = 0e-6  # Increase if overfitting
 
-LOG_RETURN_MULTIPLIER = 10000 # Try making log returns a much larger number for the NN to train on
+LOG_RETURN_MULTIPLIER = 1 # Try making log returns a much larger number for the NN to train on
 
 # ===========================================
 
@@ -58,9 +58,9 @@ def main():
     greeksFilePaths = [f for f in glob.glob("./greeks/greeksData/*.npy")]
 
     features = np.stack([np.load(f) for f in greeksFilePaths], axis=-1)
-    features = np.concatenate([features, prices], axis = 2)
+    # features = np.concatenate([features, prices], axis = 2)
 
-    logReturns = np.load("./greeks/greeksData/LogReturns_750_day_data.npy")
+    logReturns = np.load("./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy")
     logReturns = logReturns * LOG_RETURN_MULTIPLIER
 
     for featurePath in greeksFilePaths:
@@ -79,8 +79,11 @@ def main():
 
 def trainNN():
     scaler_X = MinMaxScaler(feature_range=(-1, 1))
-    # scaler_y = MinMaxScaler(feature_range=(-0.2, 0.2))
-    scaler_y = None
+
+    if LOG_RETURN_MULTIPLIER == 1:
+        scaler_y = MinMaxScaler(feature_range=(-0.2, 0.2))
+    else:
+        scaler_y = None
 
     X_flat, y_flat, X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled, X_test_scaled, y_test_scaled = setVariables(scaler_X, scaler_y)
 
@@ -135,7 +138,7 @@ def trainNN():
         y_pred = y_pred_scaled / LOG_RETURN_MULTIPLIER
 
     # Unscaled true labels
-    y_true = y_flat[TRAINING_START_DAY:]
+    y_true = y_flat[TRAINING_START_DAY:] / LOG_RETURN_MULTIPLIER
 
     print("Predicted log return stats (min, max, std):", y_pred.min(), y_pred.max(), y_pred.std())
     print("Actual log return stats (min, max, std):", y_true.min(), y_true.max(), y_true.std())
@@ -249,39 +252,39 @@ def createAndTrainModel(X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled
     model = Sequential([
         tf.keras.Input(shape=(X_train_scaled.shape[1],)),
 
-        Dense(128,
-              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-              kernel_initializer='he_normal'),
-        LeakyReLU(negative_slope=0.3),
-        Dropout(DROPOUT_RATE),
+        # Dense(128,
+        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+        #       kernel_initializer='he_normal'),
+        # LeakyReLU(negative_slope=0.3),
+        # Dropout(DROPOUT_RATE),
         # BatchNormalization(),
-
-        Dense(256,
-              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-              kernel_initializer='he_normal'),
-        LeakyReLU(negative_slope=0.3),
-        Dropout(DROPOUT_RATE),
+        #
+        # Dense(256,
+        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+        #       kernel_initializer='he_normal'),
+        # LeakyReLU(negative_slope=0.3),
+        # Dropout(DROPOUT_RATE),
         # BatchNormalization(),
-
-        Dense(512,
-              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-              kernel_initializer='he_normal'),
-        LeakyReLU(negative_slope=0.3),
-        Dropout(DROPOUT_RATE),
+        #
+        # Dense(512,
+        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+        #       kernel_initializer='he_normal'),
+        # LeakyReLU(negative_slope=0.3),
+        # Dropout(DROPOUT_RATE),
         # BatchNormalization(),
-
-        Dense(256,
-              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-              kernel_initializer='he_normal'),
-        LeakyReLU(negative_slope=0.3),
-        Dropout(DROPOUT_RATE),
+        #
+        # Dense(256,
+        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+        #       kernel_initializer='he_normal'),
+        # LeakyReLU(negative_slope=0.3),
+        # Dropout(DROPOUT_RATE),
         # BatchNormalization(),
-
-        Dense(128,
-              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-              kernel_initializer='he_normal'),
-        LeakyReLU(negative_slope=0.3),
-        Dropout(DROPOUT_RATE),
+        #
+        # Dense(128,
+        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+        #       kernel_initializer='he_normal'),
+        # LeakyReLU(negative_slope=0.3),
+        # Dropout(DROPOUT_RATE),
         # BatchNormalization(),
 
         Dense(50, activation='linear',
@@ -295,7 +298,7 @@ def createAndTrainModel(X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled
     callbacks = [
         EarlyStopping( # when cross validation data loss stops improving --> reduce overfitting by stopping early
             monitor='val_loss',
-            patience=30,  # Reduced patience
+            patience=50,  # Reduced patience
             restore_best_weights=True,
             verbose=1,
             min_delta=1e-6  # Minimum change to qualify as improvement
