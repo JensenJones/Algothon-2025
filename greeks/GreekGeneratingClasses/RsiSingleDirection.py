@@ -1,7 +1,7 @@
 import numpy as np
 
-from greeks.GreekBaseClass import Greek
-from greeks.RsiCalculator import RsiCalculator
+from greeks.GreekGeneratingClasses.GreekBaseClass import Greek
+from greeks.GreekGeneratingClasses.RsiCalculator import RsiCalculator
 
 
 class RsiSingleDirection(Greek):

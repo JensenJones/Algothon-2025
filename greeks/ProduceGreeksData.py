@@ -1,19 +1,19 @@
 import sys
 import os
 
-from greeks.BollingerBandsCalculator import BollingerBandsCalculator
-from greeks.BollingerBandsSingleDirection import BollingerBandsSingleDirection
-from greeks.Momentum import Momentum
-from greeks.Volatility import Volatility
+from greeks.GreekGeneratingClasses.BollingerBandsCalculator import BollingerBandsCalculator
+from greeks.GreekGeneratingClasses.BollingerBandsSingleDirection import BollingerBandsSingleDirection
+from greeks.GreekGeneratingClasses.Momentum import Momentum
+from greeks.GreekGeneratingClasses.Volatility import Volatility
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from greeks.GreeksManager import GreeksManager
-from greeks.LaggedPrices import LaggedPrices
-from greeks.LogReturns import LogReturns
-from greeks.RollingMeans import RollingMeans
-from greeks.RsiCalculator import RsiCalculator
-from greeks.RsiSingleDirection import RsiSingleDirection
+from greeks.GreekGeneratingClasses.LaggedPrices import LaggedPrices
+from greeks.GreekGeneratingClasses.LogReturns import LogReturns
+from greeks.GreekGeneratingClasses.RollingMeans import RollingMeans
+from greeks.GreekGeneratingClasses.RsiCalculator import RsiCalculator
+from greeks.GreekGeneratingClasses.RsiSingleDirection import RsiSingleDirection
 
 import numpy as np
 
@@ -31,10 +31,15 @@ prices = np.loadtxt("./sourceCode/prices.txt").T
 
 
 def main():
+    gm = createGreeksManager()
+
+    produceGreeksData(gm)
+
+
+def createGreeksManager():
     pricesSoFar = prices[:, 0:1]
     longRsiC = RsiCalculator(pricesSoFar, RSIC_WINDOW_SIZE)
     shortRsiC = RsiCalculator(pricesSoFar, RSIC_WINDOW_SIZE)
-
     lowerBbc = BollingerBandsCalculator(pricesSoFar, BB_WINDOW_SIZE)
     upperBbc = BollingerBandsCalculator(pricesSoFar, BB_WINDOW_SIZE)
 
@@ -60,40 +65,43 @@ def main():
                 BollingerBandsSingleDirection(pricesSoFar, upperBbc, "upper", upperBbComp)
             ])
     gm = GreeksManager(greeks)
-
-    produceGreeksData(gm)
+    return gm
 
 
 def produceGreeksData(gm):
     toLog = {}
+    addToLog(gm, toLog)
 
     for i in range(1, prices.shape[1]):
         gm.update(prices[:, i:i + 1])
-
-        for greek in gm.getGreeks():
-            greek_name = greek.__class__.__name__
-
-            if hasattr(greek, 'direction'):
-                greek_name += f"_{greek.direction}"
-
-            if hasattr(greek, 'lag'):
-                greek_name += f"_Lag={greek.lag}"
-
-            if hasattr(greek, 'focusBand'):
-                greek_name += f"_focusBand={greek.focusBand}"
-
-            if hasattr(greek, 'windowSize'):
-                greek_name += f"_windowSize={greek.windowSize}"
-
-            if greek_name not in toLog:
-                toLog[greek_name] = []
-
-            assert greek.getGreeks().shape[0] == 50, f"{greek_name} has shape = {greek.getGreeks().shape}"
-            toLog[greek_name].append(greek.getGreeks())
+        addToLog(gm, toLog)
 
     for greekToLog, listOfGreeks in toLog.items():
         print(f"Appending greeks of name {greekToLog}\nShape: {np.stack(listOfGreeks).shape}\n")
         np.save(f"./greeks/greeksData/{greekToLog}_750_day_data.npy", np.stack(listOfGreeks))
+
+
+def addToLog(gm, toLog):
+    for greek in gm.getGreeksList():
+        greek_name = greek.__class__.__name__
+
+        if hasattr(greek, 'direction'):
+            greek_name += f"_{greek.direction}"
+
+        if hasattr(greek, 'lag'):
+            greek_name += f"_Lag={greek.lag}"
+
+        if hasattr(greek, 'focusBand'):
+            greek_name += f"_focusBand={greek.focusBand}"
+
+        if hasattr(greek, 'windowSize'):
+            greek_name += f"_windowSize={greek.windowSize}"
+
+        if greek_name not in toLog:
+            toLog[greek_name] = []
+
+        assert greek.getGreeksList().shape[0] == 50, f"{greek_name} has shape = {greek.getGreeksList().shape}"
+        toLog[greek_name].append(greek.getGreeksList())
 
 
 if __name__ == '__main__':

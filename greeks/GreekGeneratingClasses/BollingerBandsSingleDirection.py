@@ -1,7 +1,7 @@
 import numpy as np
 
-from greeks.BollingerBandsCalculator import BollingerBandsCalculator
-from greeks.GreekBaseClass import Greek
+from greeks.GreekGeneratingClasses.BollingerBandsCalculator import BollingerBandsCalculator
+from greeks.GreekGeneratingClasses.GreekBaseClass import Greek
 
 
 class BollingerBandsSingleDirection(Greek):
