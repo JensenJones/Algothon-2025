@@ -1,7 +1,7 @@
 from typing import List
 import numpy as np
 
-from greeks.GreekBaseClass import Greek
+from greeks.GreekGeneratingClasses.GreekBaseClass import Greek
 
 
 class GreeksManager(Greek):
@@ -13,5 +13,14 @@ class GreeksManager(Greek):
         for greek in self.greeks:
             greek.update(newDayPrices)
 
-    def getGreeks(self) -> List[Greek]:
+    def getGreeksList(self) -> List[Greek]:
         return self.greeks
+
+    def getGreeks(self):
+        greeksList = self.greeks
+        greeksData = []
+
+        for i, greek in enumerate(greeksList):
+            greeksData.append(greek.getGreeks())
+
+        return np.array(greeksData)

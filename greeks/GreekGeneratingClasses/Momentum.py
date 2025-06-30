@@ -1,5 +1,5 @@
 import numpy as np
-from greeks.GreekBaseClass import Greek
+from greeks.GreekGeneratingClasses.GreekBaseClass import Greek
 
 class Momentum(Greek):
     def __init__(self, pricesSoFar: np.ndarray, windowSize: int):
