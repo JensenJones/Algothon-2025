@@ -5,6 +5,7 @@ import sys
 import joblib
 import keras.models
 from keras.src.layers import LeakyReLU
+from sklearn.metrics import mean_squared_error
 from tensorflow.keras.layers import LSTM
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -31,13 +32,12 @@ TEST_START_DAY = 625
 TEST_END_DAY = 750
 
 EPOCHS = 1000
-BATCH_SIZE = 20 # Number of training examples used to compute one gradient update
+BATCH_SIZE = 5 # Number of training examples used to compute one gradient update
 LEARNING_RATE = 0.001
-DROPOUT_RATE = 0.0 # ratio of neurons randomly dropped in training
-L1_REGULARIZATION = 0e-7  # Increase if too many irrelevant features
-L2_REGULARIZATION = 0e-6  # Increase if overfitting
-
-LOG_RETURN_MULTIPLIER = 1 # Try making log returns a much larger number for the NN to train on
+DROPOUT_RATE = 0.1 # ratio of neurons randomly dropped in training
+L1_REGULARIZATION = 1e-8  # Increase if too many irrelevant features
+L2_REGULARIZATION = 1e-8  # Increase if overfitting
+LEAKY_RELU_NEGATIVE_SLOPE = 0.1
 
 # ===========================================
 
@@ -51,17 +51,21 @@ pricesFilePath = "./sourceCode/prices.txt"
 modelSaveFilePath = "./greeks/NN/best_model_from_GreeksNNTuning.keras"
 
 def main():
-    global prices, logReturns, features, params, backtester
+    global prices, logReturns, features, params, backtester, LEAKY_RELU_NEGATIVE_SLOPE
     prices = np.loadtxt(pricesFilePath)
     prices = prices[:, :, np.newaxis]
 
     greeksFilePaths = [f for f in glob.glob("./greeks/greeksData/*.npy")]
 
     features = np.stack([np.load(f) for f in greeksFilePaths], axis=-1)
-    # features = np.concatenate([features, prices], axis = 2)
+    features = np.concatenate([features, prices], axis = 2)
 
     logReturns = np.load("./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy")
-    logReturns = logReturns * LOG_RETURN_MULTIPLIER
+
+    mask = (logReturns < 0) & (np.isnan(logReturns))
+    average_negative = np.mean(logReturns[mask])
+    print(f"Average of log returns < 0 = {average_negative}")
+    LEAKY_RELU_NEGATIVE_SLOPE = abs(average_negative)
 
     for featurePath in greeksFilePaths:
         print(f"Using the greek: {featurePath}")
@@ -71,21 +75,12 @@ def main():
     print(f"prices shape = {prices.shape}")
     print(f"Features shape = {features.shape}")
 
-    # params: bt.Params = bt.parse_command_line_args_as_params(["--path", "./greeks/GreeksNNTuning.py",
-    #                                                "--timeline", str(TRAINING_START_DAY), str(TRAINING_END_DAY)])
-    # backtester = bt.Backtester(params)
-
     trainNN()
 
 def trainNN():
     scaler_X = MinMaxScaler(feature_range=(-1, 1))
 
-    if LOG_RETURN_MULTIPLIER == 1:
-        scaler_y = MinMaxScaler(feature_range=(-0.2, 0.2))
-    else:
-        scaler_y = None
-
-    X_flat, y_flat, X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled, X_test_scaled, y_test_scaled = setVariables(scaler_X, scaler_y)
+    X_flat, y_flat, X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled, X_test_scaled, y_test_scaled = setVariables(scaler_X)
 
     print("NaNs in X_train:", np.isnan(X_train_scaled).any())
     print("NaNs in y_train:", np.isnan(y_train_scaled).any())
@@ -108,37 +103,36 @@ def trainNN():
     print(f"prices shape = {prices.shape}")
     print(f"logReturns shape = {logReturns.shape}")
 
-    if scaler_y is not None:
-        train_loss, train_mse, train_mae = model.evaluate(scaler_X.transform(X_flat[TRAINING_START_DAY:]),
-                                                          scaler_y.transform(y_flat[TRAINING_START_DAY:]), verbose=0)
-        cv_loss, cv_mse, cv_mae = model.evaluate(scaler_X.transform(X_flat[CV_START_DAY:CV_END_DAY]),
-                                                 scaler_y.transform(y_flat[CV_START_DAY:CV_END_DAY]),
-                                        verbose=0)
-        test_loss, test_mse, test_mae = model.evaluate(scaler_X.transform(X_flat[TEST_START_DAY:]),
-                                                       scaler_y.transform(y_flat[TEST_START_DAY:]), verbose=0)
-    else:
-        train_loss, train_mse, train_mae = model.evaluate(scaler_X.transform(X_flat[TRAINING_START_DAY:]),
-                                                          y_flat[TRAINING_START_DAY:], verbose=0)
-        cv_loss, cv_mse, cv_mae = model.evaluate(scaler_X.transform(X_flat[CV_START_DAY:CV_END_DAY]),
-                                                 y_flat[CV_START_DAY:CV_END_DAY],
-                                                 verbose=0)
-        test_loss, test_mse, test_mae = model.evaluate(scaler_X.transform(X_flat[TEST_START_DAY:]),
-                                                       y_flat[TEST_START_DAY:], verbose=0)
+    train_loss, train_mse, train_mae = model.evaluate(scaler_X.transform(X_flat[TRAINING_START_DAY:]),
+                                                      y_flat[TRAINING_START_DAY:], verbose=0)
+    cv_loss, cv_mse, cv_mae = model.evaluate(scaler_X.transform(X_flat[CV_START_DAY:CV_END_DAY]),
+                                             y_flat[CV_START_DAY:CV_END_DAY],
+                                             verbose=0)
+    test_loss, test_mse, test_mae = model.evaluate(scaler_X.transform(X_flat[TEST_START_DAY:]),
+                                                   y_flat[TEST_START_DAY:], verbose=0)
 
-    print(f"Train Loss: {train_loss:.3f}, Train MSE: {train_mse:.3f}, Train MAE: {train_mae:.3f}")
-    print(f"CV Loss:    {cv_loss:.3f},    CV MSE: {cv_mse:.3f},    CV MAE: {cv_mae:.3f}")
-    print(f"Test Loss:  {test_loss:.3f},  Test MSE: {test_mse:.3f},  Test MAE: {test_mae:.3f}")
+    print(f"Train Loss: {train_loss:.6f}, Train MSE: {train_mse:.6f}, Train MAE: {train_mae:.6f}")
+    print(f"CV Loss:    {cv_loss:.6f},    CV MSE: {cv_mse:.6f},    CV MAE: {cv_mae:.6f}")
+    print(f"Test Loss:  {test_loss:.6f},  Test MSE: {test_mse:.6f},  Test MAE: {test_mae:.6f}")
     print('\n')
 
     # Predict and inverse-transform
     y_pred_scaled = model.predict(scaler_X.transform(X_flat[TRAINING_START_DAY:]))
-    if scaler_y is not None:
-        y_pred = scaler_y.inverse_transform(y_pred_scaled)
-    else:
-        y_pred = y_pred_scaled / LOG_RETURN_MULTIPLIER
+    y_pred = y_pred_scaled
 
     # Unscaled true labels
-    y_true = y_flat[TRAINING_START_DAY:] / LOG_RETURN_MULTIPLIER
+    y_true = y_flat[TRAINING_START_DAY:]
+
+    print("\nMSE per instrument on TEST DATA sorted:")
+    mse_per_instrument = []
+    for i in range(50):
+        mse = mean_squared_error(y_true[TEST_START_DAY:, i], y_pred[TEST_START_DAY:, i])
+        mse_per_instrument.append(mse)
+
+    sorted_mse = sorted(enumerate(mse_per_instrument), key=lambda x: x[1], reverse=True)
+    for i, mse in sorted_mse:
+        print(f"Instrument {i:2d}: MSE = {mse:.6f}")
+    print('\n')
 
     print("Predicted log return stats (min, max, std):", y_pred.min(), y_pred.max(), y_pred.std())
     print("Actual log return stats (min, max, std):", y_true.min(), y_true.max(), y_true.std())
@@ -149,28 +143,23 @@ def trainNN():
     plotAllPredictedPrices(
         model,
         scaler_X.transform(X_flat),
-        scaler_y,
     )
 
     plotPredictedLogReturns(
         model,
         scaler_X.transform(X_flat),
-        scaler_y,
         "Predicted vs Actual Log Returns for All Instruments"
     )
 
-def plotPredictedLogReturns(model, X_scaled, scaler_y, title):
+def plotPredictedLogReturns(model, X_scaled, title):
     predicted_log_returns_scaled = model.predict(X_scaled)
 
-    if scaler_y is not None:
-        predicted_log_returns = scaler_y.inverse_transform(predicted_log_returns_scaled)
-    else:
-        predicted_log_returns = predicted_log_returns_scaled / LOG_RETURN_MULTIPLIER
+    predicted_log_returns = predicted_log_returns_scaled
 
     instruments_per_page = 10
     num_pages = 50 // instruments_per_page
 
-    actualLogReturns = logReturns / LOG_RETURN_MULTIPLIER
+    actualLogReturns = logReturns
 
     for page in range(num_pages):
         fig, axes = plt.subplots(nrows=instruments_per_page, ncols=1, figsize=(12, 6 * instruments_per_page), sharex=True)
@@ -178,8 +167,8 @@ def plotPredictedLogReturns(model, X_scaled, scaler_y, title):
 
         for instrument in range(instruments_per_page):
             i = page * instruments_per_page + instrument
-            actual = actualLogReturns[TEST_START_DAY + 105:, i]
-            predicted = predicted_log_returns[TEST_START_DAY + 105:, i]
+            actual = actualLogReturns[TRAINING_START_DAY:, i]
+            predicted = predicted_log_returns[TRAINING_START_DAY:, i]
 
             ax = axes[instrument]
             ax.plot(predicted, label="Predicted", alpha=0.7)
@@ -197,14 +186,11 @@ def plotPredictedLogReturns(model, X_scaled, scaler_y, title):
         plt.close(fig)
         print(f"Saved {filename}")
 
-def plotAllPredictedPrices(model, X_scaled, scaler_y, title = "Predicted vs Actual Prices for All Instruments"):
+def plotAllPredictedPrices(model, X_scaled, title = "Predicted vs Actual Prices for All Instruments"):
     print(f"predicting on X_scaled, shape = {X_scaled.shape}")
     predicted_log_returns_scaled = model.predict(X_scaled)
 
-    if scaler_y is not None:
-        predicted_log_returns = scaler_y.inverse_transform(predicted_log_returns_scaled)
-    else:
-        predicted_log_returns = predicted_log_returns_scaled / LOG_RETURN_MULTIPLIER
+    predicted_log_returns = predicted_log_returns_scaled
 
     print(f"Predicted log returns shape = {predicted_log_returns.shape}")
 
@@ -252,40 +238,40 @@ def createAndTrainModel(X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled
     model = Sequential([
         tf.keras.Input(shape=(X_train_scaled.shape[1],)),
 
-        # Dense(128,
-        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-        #       kernel_initializer='he_normal'),
-        # LeakyReLU(negative_slope=0.3),
-        # Dropout(DROPOUT_RATE),
-        # BatchNormalization(),
-        #
+        Dense(128,
+              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+              kernel_initializer='he_normal'),
+        LeakyReLU(),
+        Dropout(DROPOUT_RATE),
+        BatchNormalization(),
+
         # Dense(256,
         #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
         #       kernel_initializer='he_normal'),
-        # LeakyReLU(negative_slope=0.3),
+        # LeakyReLU(),
         # Dropout(DROPOUT_RATE),
         # BatchNormalization(),
-        #
-        # Dense(512,
-        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-        #       kernel_initializer='he_normal'),
-        # LeakyReLU(negative_slope=0.3),
-        # Dropout(DROPOUT_RATE),
-        # BatchNormalization(),
-        #
-        # Dense(256,
-        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-        #       kernel_initializer='he_normal'),
-        # LeakyReLU(negative_slope=0.3),
-        # Dropout(DROPOUT_RATE),
-        # BatchNormalization(),
-        #
-        # Dense(128,
-        #       kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
-        #       kernel_initializer='he_normal'),
-        # LeakyReLU(negative_slope=0.3),
-        # Dropout(DROPOUT_RATE),
-        # BatchNormalization(),
+
+        Dense(512,
+              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+              kernel_initializer='he_normal'),
+        LeakyReLU(),
+        Dropout(DROPOUT_RATE),
+        BatchNormalization(),
+
+        Dense(256,
+              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+              kernel_initializer='he_normal'),
+        LeakyReLU(),
+        Dropout(DROPOUT_RATE),
+        BatchNormalization(),
+
+        Dense(128,
+              kernel_regularizer=l1_l2(l1=L1_REGULARIZATION, l2=L2_REGULARIZATION),
+              kernel_initializer='he_normal'),
+        LeakyReLU(),
+        Dropout(DROPOUT_RATE),
+        BatchNormalization(),
 
         Dense(50, activation='linear',
               kernel_initializer='glorot_normal')
@@ -298,7 +284,7 @@ def createAndTrainModel(X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled
     callbacks = [
         EarlyStopping( # when cross validation data loss stops improving --> reduce overfitting by stopping early
             monitor='val_loss',
-            patience=50,  # Reduced patience
+            patience=30,  # Reduced patience
             restore_best_weights=True,
             verbose=1,
             min_delta=1e-6  # Minimum change to qualify as improvement
@@ -331,7 +317,7 @@ def createAndTrainModel(X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled
 
     return model, history
 
-def setVariables(scaler_x, scaler_y):
+def setVariables(scaler_x):
     X = features[:-1]  # Chop off last day worth of features
     y = logReturns[1:]  # Chop off first day of prices
     # X[i] are now the predictors for price[i] where price[i] is equivalently our prediction of logReturns from our currentDay
@@ -359,16 +345,9 @@ def setVariables(scaler_x, scaler_y):
     X_cv_scaled = X_cv_scaled_reshaped.reshape(X_cv.shape)
     X_test_scaled = X_test_scaled_reshaped.reshape(X_test.shape)
 
-    # y data is already 2D
-    if scaler_y is not None:
-        y_train_scaled = scaler_y.fit_transform(y_train)
-        y_cv_scaled = scaler_y.transform(y_cv)
-        y_test_scaled = scaler_y.transform(y_test)
-        joblib.dump(scaler_y, "./greeks/NN/scaler_y_NN_LogReturns.gz")
-    else:
-        y_train_scaled = y_train
-        y_cv_scaled = y_cv
-        y_test_scaled = y_test
+    y_train_scaled = y_train
+    y_cv_scaled = y_cv
+    y_test_scaled = y_test
 
     return X_flat, y, X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled, X_test_scaled, y_test_scaled
 
