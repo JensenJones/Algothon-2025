@@ -17,8 +17,7 @@ from greeks.GreekGeneratingClasses.RsiSingleDirection import RsiSingleDirection
 
 import numpy as np
 
-LAG_START_RANGE = 1
-LAG_END_RANGE = 6
+LAGS = [1, 2, 3, 4, 5]
 VOL_WINDOWS = [5, 10, 20]
 MOMENTUM_WINDOWS = [3, 7, 14]
 ROLLING_MEANS_WINDOW_SIZE = 14
@@ -49,7 +48,7 @@ def createGreeksManager():
     # def upperBbComp(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     #     return (a > b).astype(int)
 
-    lagged_prices_greeks = [LaggedPrices(pricesSoFar, lag) for lag in range(LAG_START_RANGE, LAG_END_RANGE)]
+    lagged_prices_greeks = [LaggedPrices(pricesSoFar, lag) for lag in LAGS]
     vol_greeks = [Volatility(pricesSoFar, window) for window in VOL_WINDOWS]
     momentum_greeks = [Momentum(pricesSoFar, window) for window in MOMENTUM_WINDOWS]
     greeks = (
@@ -58,7 +57,6 @@ def createGreeksManager():
             momentum_greeks +
             [
                 LogReturns(pricesSoFar, 1),
-                LogReturns(pricesSoFar, 3),
                 # RollingMeans(pricesSoFar, ROLLING_MEANS_WINDOW_SIZE),
                 # RsiSingleDirection(longRsiC, "long", RSI_LONG_THRESHOLD),
                 # RsiSingleDirection(shortRsiC, "short", RSI_SHORT_THRESHOLD),
@@ -80,7 +78,6 @@ def produceGreeksData(gm):
     for greekToLog, listOfGreeks in toLog.items():
         print(f"Appending greeks of name {greekToLog}\nShape: {np.stack(listOfGreeks).shape}\n")
         np.save(f"./greeks/greeksData/{greekToLog}_750_day_data.npy", np.stack(listOfGreeks))
-
 
 def addToLog(gm, toLog):
     for greek in gm.getGreeksList():
@@ -106,7 +103,6 @@ def addToLog(gm, toLog):
 
         assert greek.getGreeks().shape[0] == 50, f"{greek_name} has shape = {greek.getGreeks().shape}"
         toLog[greek_name].append(greek.getGreeks())
-
 
 if __name__ == '__main__':
     main()
