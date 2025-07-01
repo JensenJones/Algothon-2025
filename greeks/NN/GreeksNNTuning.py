@@ -20,7 +20,7 @@ from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.keras.regularizers import l1_l2
 from tensorflow.keras.optimizers import Adam
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler
 
 # ============ Tuning Parameters ============
 
@@ -78,7 +78,7 @@ def main():
     trainNN()
 
 def trainNN():
-    scaler_X = MinMaxScaler(feature_range=(-1, 1))
+    scaler_X = MinMaxScaler(feature_range=(-10, 10))
 
     X_flat, y_flat, X_train_scaled, y_train_scaled, X_cv_scaled, y_cv_scaled, X_test_scaled, y_test_scaled = setVariables(scaler_X)
 
