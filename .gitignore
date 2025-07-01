@@ -1,0 +1,52 @@
+# VS Code / PyCharm / JetBrains IDE configs
+.idea/
+.vscode/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Model weights & scalers
+*.keras
+*.h5
+*.pkl
+*.joblib
+*.gz
+
+# NumPy and other data outputs
+*.npy
+*.npz
+*.csv
+
+# Logs and experiment tracking
+*.log
+logs/
+*.db
+optuna.db
+
+# Plot images / visual outputs
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+
+# MacOS / system files
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore saved models unless you version them explicitly
+greeks/LSTM/*.keras
+greeks/NN/*.keras
+submission/*.keras
+
+# Ignore all __pycache__ folders recursively
+**/__pycache__/
