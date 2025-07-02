@@ -8,13 +8,6 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Model weights & scalers
-*.keras
-*.h5
-*.pkl
-*.joblib
-*.gz
-
 # NumPy and other data outputs
 *.npy
 *.npz
