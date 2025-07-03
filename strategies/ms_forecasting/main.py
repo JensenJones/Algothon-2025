@@ -5,6 +5,10 @@ import joblib
 import numpy as np
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
+import warnings
+from skforecast.exceptions import MissingValuesWarning
+
+warnings.simplefilter("ignore", category=MissingValuesWarning)
 
 modelFilePath = "./saved models/forecaster_model_date-2025-07-03_time-16-49-04.pkl"
 model_package = joblib.load(modelFilePath)
@@ -15,12 +19,15 @@ VOL_WINDOWS = [5, 10, 20]
 MOMENTUM_WINDOWS = [3, 7, 14]
 
 # Unpack Model
-forecaster = model_package["forecaster"]
 best_params = model_package["best_params"]
 best_lags = model_package["best_lags"]
 transformer_exog = model_package["transformer_exog"]
+window_exog = model_package["window_features"]
+forecaster = model_package["forecaster"]
+feature_names = model_package["feature_names"]
 
-assert forecaster.is_fitted == True, "Forecaster has not been fit"
+
+forecaster.dropna_from_series = False
 
 nInst = 50
 positions = np.zeros(nInst)
@@ -41,7 +48,7 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
         initialiseWithPrices()
         firstInit = False
     else:
-        greeksManager.updateGreeks(newDayPrices)
+        greeksManager.update(newDayPrices)
 
     fitForecaster()
 
@@ -56,7 +63,7 @@ def fitForecaster():
 
     seriesDict = getSeriesDict(logReturnsSoFar)
 
-    exogDict = greeksToExogDict(greeksManager.getGreeksHistory())
+    exogDict = greeksToScaledExogDict(greeksManager.getGreeksHistory())
 
     forecaster.fit(
         series  = seriesDict,
@@ -66,43 +73,59 @@ def fitForecaster():
 def updatePositions(predictedLogReturns):
     global positions
 
-    for instrument, prediction in enumerate(predictedLogReturns):
+    for inst, prediction in enumerate(predictedLogReturns):
         if np.isnan(prediction):
             continue
 
         if prediction > SIMPLE_THRESHOLD:
             strength = (prediction - SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
-            positions[i] = 1000 * strength
+            positions[inst] = 1000 * strength
         elif prediction < -SIMPLE_THRESHOLD:
             strength = (prediction + SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
-            positions[i] = 1000 * strength
+            positions[inst] = 1000 * strength
         else:
-            positions[i] = 0
+            positions[inst] = 0
 
 def getPredictedLogReturns() -> pd.DataFrame:
     return forecaster.predict(
         steps   = 1,
-        exog    = greeksToExogDict(greeksManager.getGreeks()),
+        exog    = greeksToScaledExogDict(greeksManager.getGreeksHistory()),
         levels  = None,
     )["pred"].values
 
 def getSeriesDict(logReturnsSoFar):
     T = logReturnsSoFar.shape[1]
-    index = pd.Index(range(T))  # simple integer index 0 to T-1
+    index = pd.date_range(start="2000-01-01", periods=T, freq="D")  # or any freq like "B" (business day)
     seriesDict = {
         f"inst_{i}": pd.Series(logReturnsSoFar[i], index=index, name=f"inst_{i}")
         for i in range(logReturnsSoFar.shape[0])
     }
     return seriesDict
 
-def greeksToExogDict(greeksHist: np.ndarray) -> dict:
-    nInst, T, nFeat = greeksHist.shape
-    feature_names = [f"feat_{i}" for i in range(nFeat)]
+def greeksToScaledExogDict(currentGreeks: np.ndarray) -> dict:
+    nInst, T, nFeat = currentGreeks.shape
+    index = pd.date_range(start="2000-01-01", periods=T, freq="D")  # must match series
 
-    return {
-        f"inst_{i}": pd.DataFrame(greeksHist[i], columns=feature_names)
-        for i in range(nInst)
-    }
+    exogDict = {}
+
+    for i in range(nInst):
+        df = pd.DataFrame(currentGreeks[i], index=index)
+
+        # Apply window features (e.g., rolling stats)
+        if window_exog is not None:
+            df = window_exog.transform(df)
+
+        # Scale using the fitted transformer
+        df_scaled = transformer_exog.transform(df)
+
+        # Assign original feature names from training
+        df_scaled = pd.DataFrame(df_scaled, columns=feature_names, index=index)
+
+        exogDict[f"inst_{i}"] = df_scaled
+
+    return exogDict
+
+
 
 def initialiseWithPrices():
     global greeksManager
