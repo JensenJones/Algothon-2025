@@ -1,11 +1,9 @@
 # Load
-import os
-
 import joblib
 import numpy as np
 
-save_dir = "./saved models"
-model_package = joblib.load(os.path.join(save_dir, "forecaster_model.pkl"))
+modelFilePath = "./saved models/forecaster_model_date-2025-07-03_time-16-49-04.pkl"
+model_package = joblib.load(modelFilePath)
 
 # For Greeks
 LAGS = [1, 2, 3, 4, 5]
