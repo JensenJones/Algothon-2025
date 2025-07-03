@@ -7,13 +7,13 @@ from sklearn.linear_model import LinearRegression
 
 # ===== File paths =====
 pricesFilePath = "./sourceCode/prices.txt"
-logReturnsFilePath = "./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy"
+logReturnsFilePath = "./greeks/greeksData_750Days/LogReturns_lookback=1_750_day_data.npy"
 
 def getData():
     prices = np.loadtxt(pricesFilePath)
     prices = prices[:, :, np.newaxis]
 
-    greeksFilePaths = sorted([f for f in glob.glob("./greeks/greeksData/*.npy")])  # consistent order
+    greeksFilePaths = sorted([f for f in glob.glob("./greeks/greeksData_750Days/*.npy")])  # consistent order
 
     features_list = []
     feature_names = []

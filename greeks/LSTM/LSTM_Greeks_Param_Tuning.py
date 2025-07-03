@@ -40,7 +40,7 @@ EPOCHS = 40
 # ===========================================
 
 pricesFilePath: str = "./sourceCode/prices.txt"
-logReturnsFilePath = "./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy"
+logReturnsFilePath = "./greeks/greeksData_750Days/LogReturns_lookback=1_750_day_data.npy"
 modelSaveFilePath = "./greeks/LSTM/Best_LSTM_Produced.keras"
 prices = np.loadtxt(pricesFilePath)
 logReturns = np.load(logReturnsFilePath)
@@ -318,7 +318,7 @@ def getData():
     prices = np.loadtxt(pricesFilePath)
     prices = prices[:, :, np.newaxis]
 
-    greeksFilePaths = [f for f in glob.glob("./greeks/greeksData/*.npy")]
+    greeksFilePaths = [f for f in glob.glob("./greeks/greeksData_750Days/*.npy")]
 
     features = np.stack([np.load(f) for f in greeksFilePaths], axis=-1)
     features = np.concatenate([features, prices], axis=2)

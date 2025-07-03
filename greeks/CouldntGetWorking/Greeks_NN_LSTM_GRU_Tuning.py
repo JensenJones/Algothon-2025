@@ -52,22 +52,22 @@ backtester = None
 def main():
     global prices, logReturns, features, params, backtester
     prices = np.loadtxt("./sourceCode/prices.txt")
-    logReturns = np.load("./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy")
+    logReturns = np.load("./greeks/greeksData_750Days/LogReturns_lookback=1_750_day_data.npy")
 
     lagged_paths = sorted([
-        f for f in glob.glob("./greeks/greeksData/LaggedPrices_Lag=*_750_day_data.npy")
+        f for f in glob.glob("./greeks/greeksData_750Days/LaggedPrices_Lag=*_750_day_data.npy")
         if "LogReturns" not in f
     ])
 
     greeksFilePaths = (
             lagged_paths +
             [
-                "./greeks/greeksData/LaggedPrices_lag=1_750_day_data.npy",
-                "./greeks/greeksData/BollingerBandsSingleDirection_focusBand=lower_750_day_data.npy",
-                "./greeks/greeksData/BollingerBandsSingleDirection_focusBand=upper_750_day_data.npy",
-                "./greeks/greeksData/RollingMeans_750_day_data.npy",
-                "./greeks/greeksData/RsiSingleDirection_long_750_day_data.npy",
-                "./greeks/greeksData/RsiSingleDirection_short_750_day_data.npy"
+                "./greeks/greeksData_750Days/LaggedPrices_lag=1_750_day_data.npy",
+                "./greeks/greeksData_750Days/BollingerBandsSingleDirection_focusBand=lower_750_day_data.npy",
+                "./greeks/greeksData_750Days/BollingerBandsSingleDirection_focusBand=upper_750_day_data.npy",
+                "./greeks/greeksData_750Days/RollingMeans_750_day_data.npy",
+                "./greeks/greeksData_750Days/RsiSingleDirection_long_750_day_data.npy",
+                "./greeks/greeksData_750Days/RsiSingleDirection_short_750_day_data.npy"
             ]
     )
 

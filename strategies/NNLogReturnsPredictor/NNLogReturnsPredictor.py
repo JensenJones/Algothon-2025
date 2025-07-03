@@ -17,19 +17,6 @@ isInnit = True
 model = keras.models.load_model("./greeks/NN/best_model_from_GreeksNNTuning.keras")
 greeksManager = createGreeksManager()
 
-def getMyPosition(prcSoFar: np.ndarray) -> np.ndarray:
-    global positions
-
-    day = prcSoFar.shape[1]
-
-    if day > 20:
-        positions = updatePositions(prcSoFar[:, -1])
-
-    if day % 50 == 0:
-        print(f"Day {day}")
-
-    return positions
-
 def updatePositions(newDayPrices) -> np.ndarray:
     greeksManager.update(newDayPrices.reshape(-1, 1))
     greeksData = greeksManager.getGreeks().T
@@ -52,5 +39,18 @@ def updatePositions(newDayPrices) -> np.ndarray:
             positions[i] = -33333
 
     return positions
+
+    return positions
+
+def getMyPosition(prcSoFar: np.ndarray) -> np.ndarray:
+    global positions
+
+    day = prcSoFar.shape[1]
+
+    if day > 20:
+        positions = updatePositions(prcSoFar[:, -1])
+
+    if day % 50 == 0:
+        print(f"Day {day}")
 
     return positions

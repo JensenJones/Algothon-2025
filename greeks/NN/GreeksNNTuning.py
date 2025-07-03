@@ -55,12 +55,12 @@ def main():
     prices = np.loadtxt(pricesFilePath)
     prices = prices[:, :, np.newaxis]
 
-    greeksFilePaths = [f for f in glob.glob("./greeks/greeksData/*.npy")]
+    greeksFilePaths = [f for f in glob.glob("./greeks/greeksData_750Days/*.npy")]
 
     features = np.stack([np.load(f) for f in greeksFilePaths], axis=-1)
     features = np.concatenate([features, prices], axis = 2)
 
-    logReturns = np.load("./greeks/greeksData/LogReturns_lookback=1_750_day_data.npy")
+    logReturns = np.load("./greeks/greeksData_750Days/LogReturns_lookback=1_750_day_data.npy")
 
     mask = (logReturns < 0) & (np.isnan(logReturns))
     average_negative = np.mean(logReturns[mask])
