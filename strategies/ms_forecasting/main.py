@@ -36,7 +36,7 @@ prices = None
 greeksManager = None
 firstInit = True
 
-SIMPLE_THRESHOLD = 0.005
+SIMPLE_THRESHOLD = 0.00
 
 def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that they call
     global prices, greeksManager, firstInit
@@ -73,17 +73,13 @@ def updatePositions(predictedLogReturns):
             continue
 
         if predictedLogReturn > SIMPLE_THRESHOLD:
-            # strength = (predictedLogReturn - SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
             strength = predictedLogReturn - SIMPLE_THRESHOLD
-            positions[inst] = 500 * strength
-            print("Should be pos = ", strength)
+            positions[inst] = 50000 * strength
         elif predictedLogReturn < -SIMPLE_THRESHOLD:
-            # strength = (predictedLogReturn + SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
             strength = predictedLogReturn + SIMPLE_THRESHOLD
-            print("Should be neg = ", strength)
-            positions[inst] = 500 * strength
+            positions[inst] = 50000 * strength
         else:
-            positions[inst] = positions[inst] / 3
+            pass
 
 def getPredictedLogReturns() -> pd.DataFrame:
     return forecaster.predict(
