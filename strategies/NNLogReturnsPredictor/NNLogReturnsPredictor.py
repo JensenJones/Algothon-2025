@@ -18,7 +18,7 @@ model = keras.models.load_model("./greeks/NN/best_model_from_GreeksNNTuning.kera
 greeksManager = createGreeksManager()
 
 def updatePositions(newDayPrices) -> np.ndarray:
-    greeksManager.update(newDayPrices.reshape(-1, 1))
+    greeksManager.updateGreeks(newDayPrices.reshape(-1, 1))
     greeksData = greeksManager.getGreeks().T
     greeksData = np.concatenate([greeksData, newDayPrices.reshape(-1, 1)], axis=1)
 

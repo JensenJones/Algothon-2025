@@ -1,15 +1,20 @@
 #!/usr/bin/env python
 import sys
 import os
+import time
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import numpy as np
 import pandas as pd
 from strategies.ms_forecasting.main import getMyPosition as getPosition
 
+startTime = time.time()
+
 nInst = 0
 nt = 0
 commRate = 0.0005
+# commRate = 0
 dlrPosLimit = 10000
 
 def loadPrices(fn):
@@ -76,3 +81,7 @@ print ("StdDev(PL): %.2lf" % plstd)
 print ("annSharpe(PL): %.2lf " % sharpe)
 print ("totDvolume: %.0lf " % dvol)
 print ("Score: %.2lf" % score)
+
+endTime = time.time()
+
+print(f"Total time taken = {endTime - startTime} seconds")

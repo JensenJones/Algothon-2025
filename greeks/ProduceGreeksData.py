@@ -72,7 +72,7 @@ def produceGreeksData(gm):
     addToLog(gm, toLog)
 
     for i in range(1, prices.shape[1]):
-        gm.update(prices[:, i:i + 1])
+        gm.updateGreeks(prices[:, i:i + 1])
         addToLog(gm, toLog)
 
     for greekToLog, listOfGreeks in toLog.items():

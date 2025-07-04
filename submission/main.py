@@ -26,7 +26,7 @@ def getMyPosition(prcSoFar: np.ndarray) -> np.ndarray:
     return positions
 
 def updatePositions(newDayPrices, gm) -> np.ndarray:
-    gm.update(newDayPrices.reshape(-1, 1))
+    gm.updateGreeks(newDayPrices.reshape(-1, 1))
     greeksData = gm.getGreeks().T
     greeksData = np.concatenate([greeksData, newDayPrices.reshape(-1, 1)], axis=1)
 

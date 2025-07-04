@@ -21,11 +21,12 @@ MOMENTUM_WINDOWS = [3, 7, 14]
 # Unpack Model
 best_params = model_package["best_params"]
 best_lags = model_package["best_lags"]
-transformer_exog = model_package["transformer_exog"]
-window_exog = model_package["window_features"]
+# transformer_exog = model_package["transformer_exog"]
+# window_features = model_package["window_features"]
 forecaster = model_package["forecaster"]
 feature_names = model_package["feature_names"]
 
+TRAINING_WINDOW_SIZE = 200
 
 forecaster.dropna_from_series = False
 
@@ -35,7 +36,7 @@ prices = None
 greeksManager = None
 firstInit = True
 
-SIMPLE_THRESHOLD = 0.001
+SIMPLE_THRESHOLD = 0.005
 
 def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that they call
     global prices, greeksManager, firstInit
@@ -48,10 +49,9 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
         initialiseWithPrices()
         firstInit = False
     else:
-        greeksManager.update(newDayPrices)
+        greeksManager.updateGreeks(newDayPrices)
 
     fitForecaster()
-
     predictedLogReturns = getPredictedLogReturns()
 
     updatePositions(predictedLogReturns)
@@ -63,88 +63,90 @@ def fitForecaster():
 
     seriesDict = getSeriesDict(logReturnsSoFar)
 
-    exogDict = greeksToScaledExogDict(greeksManager.getGreeksHistory())
-
-    forecaster.fit(
-        series  = seriesDict,
-        exog    = exogDict,
-    )
+    forecaster.fit(series=seriesDict, exog=greeksManager.getGreeksHistoryDict())
 
 def updatePositions(predictedLogReturns):
     global positions
 
-    for inst, prediction in enumerate(predictedLogReturns):
-        if np.isnan(prediction):
+    for inst, predictedLogReturn in enumerate(predictedLogReturns):
+        if np.isnan(predictedLogReturn):
             continue
 
-        if prediction > SIMPLE_THRESHOLD:
-            strength = (prediction - SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
-            positions[inst] = 1000 * strength
-        elif prediction < -SIMPLE_THRESHOLD:
-            strength = (prediction + SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
-            positions[inst] = 1000 * strength
+        if predictedLogReturn > SIMPLE_THRESHOLD:
+            # strength = (predictedLogReturn - SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
+            strength = predictedLogReturn - SIMPLE_THRESHOLD
+            positions[inst] = 500 * strength
+            print("Should be pos = ", strength)
+        elif predictedLogReturn < -SIMPLE_THRESHOLD:
+            # strength = (predictedLogReturn + SIMPLE_THRESHOLD) / SIMPLE_THRESHOLD
+            strength = predictedLogReturn + SIMPLE_THRESHOLD
+            print("Should be neg = ", strength)
+            positions[inst] = 500 * strength
         else:
-            positions[inst] = 0
+            positions[inst] = positions[inst] / 3
 
 def getPredictedLogReturns() -> pd.DataFrame:
     return forecaster.predict(
         steps   = 1,
-        exog    = greeksToScaledExogDict(greeksManager.getGreeksHistory()),
+        exog    = greeksManager.getGreeksHistoryDict(),
         levels  = None,
     )["pred"].values
 
 def getSeriesDict(logReturnsSoFar):
     T = logReturnsSoFar.shape[1]
-    index = pd.date_range(start="2000-01-01", periods=T, freq="D")  # or any freq like "B" (business day)
+    index = pd.date_range(start="2000-01-01", periods=T, freq="D")
+
     seriesDict = {
         f"inst_{i}": pd.Series(logReturnsSoFar[i], index=index, name=f"inst_{i}")
         for i in range(logReturnsSoFar.shape[0])
     }
     return seriesDict
 
-def greeksToScaledExogDict(currentGreeks: np.ndarray) -> dict:
-    nInst, T, nFeat = currentGreeks.shape
-    index = pd.date_range(start="2000-01-01", periods=T, freq="D")  # must match series
-
-    exogDict = {}
-
-    for i in range(nInst):
-        df = pd.DataFrame(currentGreeks[i], index=index)
-
-        # Apply window features (e.g., rolling stats)
-        if window_exog is not None:
-            df = window_exog.transform(df)
-
-        # Scale using the fitted transformer
-        df_scaled = transformer_exog.transform(df)
-
-        # Assign original feature names from training
-        df_scaled = pd.DataFrame(df_scaled, columns=feature_names, index=index)
-
-        exogDict[f"inst_{i}"] = df_scaled
-
-    return exogDict
-
 def initialiseWithPrices():
     global greeksManager
     greeksManager = createGreeksManager()
 
 def createGreeksManager():
-    lagged_prices_greeks = [LaggedPrices(prices, lag) for lag in PRICE_LAGS]
-    vol_greeks = [Volatility(prices, window) for window in VOL_WINDOWS]
-    momentum_greeks = [Momentum(prices, window) for window in MOMENTUM_WINDOWS]
-    greeks = (
-            lagged_prices_greeks +
-            vol_greeks +
-            momentum_greeks +
-            [
-                LogReturns(prices, lookback=1),
-                Prices(prices)
-            ])
-    gm = GreeksManager(greeks)
+    # Dictionary keys match those used in exog in training of the model so that the transformer can work correctly
+    # TODO Havent got this working yet though
+
+    laggedPricesPrefix  = "greek_lag_"
+    momentumPrefix      = "greek_momentum_"
+    volatilityPrefix    = "greek_volatility_"
+    pricesString        = "price"
+
+    laggedPricesDict = {
+        f"{laggedPricesPrefix}{lag}": LaggedPrices(TRAINING_WINDOW_SIZE, prices, lag)
+        for lag in PRICE_LAGS
+    }
+    volatilityDict = {
+        f"{volatilityPrefix}{window}" : Volatility(TRAINING_WINDOW_SIZE, prices, window)
+        for window in VOL_WINDOWS
+    }
+    momentumDict = {
+        f"{momentumPrefix}{window}" : Momentum(TRAINING_WINDOW_SIZE, prices, window)
+        for window in MOMENTUM_WINDOWS
+    }
+
+    greeksDict = (
+            laggedPricesDict |
+            volatilityDict   |
+            momentumDict     |
+            {
+                pricesString : Prices(TRAINING_WINDOW_SIZE, prices)
+            }
+    )
+
+    assert len(greeksDict) == len(feature_names)
+    gm = GreeksManager(greeksDict)
     return gm
 
+# TODO check that these greeks are producing the correct history because the history part was all chat gpt
+
 class Greek:
+    def __init__(self, historyWindowSize):
+        self.historyWindowSize = historyWindowSize
+
     def update(self, newDayPrices: np.ndarray):
         raise NotImplementedError("Must override run() in subclass")
 
@@ -153,160 +155,178 @@ class Greek:
 
     def getGreeksHistory(self):
         raise NotImplementedError("Must override run() in subclass")
-
-class LogReturns(Greek):
-    def __init__(self, pricesSoFar: np.ndarray, lookback=1):
-        super().__init__()
-        self.lookback = lookback
-        self.history = []
-        pricesFillWindow = pricesSoFar.shape[1] > lookback
-        self.prices = pricesSoFar[:, -(lookback + 1):] if pricesFillWindow else pricesSoFar
-        self.logReturns = np.full(self.prices.shape[0], np.nan)
-        if pricesFillWindow:
-            self.setLogReturns()
-            self.history.append(self.logReturns.copy())
-
-    def update(self, newDayPrices: np.ndarray):
-        self.prices = np.hstack((self.prices, newDayPrices.reshape(-1, 1)))
-        if self.prices.shape[1] > self.lookback:
-            self.prices = self.prices[:, -(self.lookback + 1):]
-            self.setLogReturns()
-            self.history.append(self.logReturns.copy())
-
-    def setLogReturns(self):
-        lookbackPrices = self.prices[:, 0]
-        currPrices = self.prices[:, -1]
-        divByZeroMask = (lookbackPrices > 0) & (currPrices > 0)
-        self.logReturns = np.full(lookbackPrices.shape, np.nan)
-        self.logReturns[divByZeroMask] = np.log(currPrices[divByZeroMask] / lookbackPrices[divByZeroMask])
-
-    def getGreeks(self):
-        return self.logReturns
-
-    def getGreeksHistory(self):
-        return np.array(self.history).T
 
 class Momentum(Greek):
-    def __init__(self, pricesSoFar: np.ndarray, windowSize: int):
-        super().__init__()
+    def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
+        super().__init__(historyWindowSize)
         self.windowSize = windowSize
+        self.historyWindowSize = historyWindowSize
         self.history = []
-        pricesFillWindow = pricesSoFar.shape[1] >= windowSize
-        self.pricesSoFar = pricesSoFar[:, -(windowSize + 1):] if pricesFillWindow else pricesSoFar
+
+        # Limit pricesSoFar to just enough for full backfill
+        self.pricesSoFar = pricesSoFar[:, -(windowSize + historyWindowSize):]
         self.momentum = np.full(pricesSoFar.shape[0], np.nan)
-        if pricesFillWindow:
-            self.setMomentum()
-            self.history.append(self.momentum.copy())
+
+        # Backfill history if we have enough price data
+        if self.pricesSoFar.shape[1] >= windowSize + 1:
+            for i in range(self.pricesSoFar.shape[1] - windowSize):
+                window = self.pricesSoFar[:, i:i + windowSize + 1]
+                log_returns = np.log(window[:, 1:] / window[:, :-1])
+                momentum = np.nansum(log_returns, axis=1)
+                self.history.append(momentum)
+            self.momentum = self.history[-1]
 
     def update(self, newDayPrices: np.ndarray):
         self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
-        if self.pricesSoFar.shape[1] >= self.windowSize:
-            self.pricesSoFar = self.pricesSoFar[:, -(self.windowSize + 1):]
+
+        if self.pricesSoFar.shape[1] >= self.windowSize + 1:
+            self.pricesSoFar = self.pricesSoFar[:, -(self.windowSize + self.historyWindowSize):]
             self.setMomentum()
+            if len(self.history) >= self.historyWindowSize:
+                self.history.pop(0)
             self.history.append(self.momentum.copy())
 
     def setMomentum(self):
-        log_returns = np.log(self.pricesSoFar[:, 1:] / self.pricesSoFar[:, :-1])
-        self.momentum = np.nansum(log_returns[:, -self.windowSize:], axis=1)
+        log_returns = np.log(self.pricesSoFar[:, -self.windowSize:] / self.pricesSoFar[:, -(self.windowSize + 1):-1])
+        self.momentum = np.nansum(log_returns, axis=1)
 
     def getGreeks(self):
         return self.momentum
 
     def getGreeksHistory(self):
-        return np.array(self.history).T
+        return np.array(self.history).T if self.history else np.empty((self.pricesSoFar.shape[0], 0))
 
 class Volatility(Greek):
-    def __init__(self, pricesSoFar, windowSize=5):
-        super().__init__()
+    def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize=5):
+        super().__init__(historyWindowSize)
         self.windowSize = windowSize
+        self.historyWindowSize = historyWindowSize
         self.history = []
-        pricesFillWindow = pricesSoFar.shape[1] >= windowSize
-        self.pricesSoFar = pricesSoFar[:, -(windowSize + 1):] if pricesFillWindow else pricesSoFar
+
+        # Trim to the last (windowSize + historyWindowSize) days if possible
+        self.pricesSoFar = pricesSoFar[:, -(windowSize + historyWindowSize):]
         self.vols = np.full(pricesSoFar.shape[0], np.nan)
-        if pricesFillWindow:
-            self.setVols()
-            self.history.append(self.vols.copy())
+
+        # Backfill history if enough data
+        if self.pricesSoFar.shape[1] >= windowSize + 1:
+            for i in range(self.pricesSoFar.shape[1] - windowSize):
+                window = self.pricesSoFar[:, i:i + windowSize + 1]
+                log_returns = np.log(window[:, 1:] / window[:, :-1])
+                vol = np.std(log_returns, axis=1, ddof=1)
+                self.history.append(vol)
+            self.vols = self.history[-1]
 
     def update(self, newDayPrices: np.ndarray):
         self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
-        if self.pricesSoFar.shape[1] >= self.windowSize:
-            self.pricesSoFar = self.pricesSoFar[:, -self.windowSize:]
+
+        if self.pricesSoFar.shape[1] >= self.windowSize + 1:
+            # Keep just enough prices for windowed volatility calculation
+            self.pricesSoFar = self.pricesSoFar[:, -(self.windowSize + self.historyWindowSize):]
             self.setVols()
+            if len(self.history) >= self.historyWindowSize:
+                self.history.pop(0)
             self.history.append(self.vols.copy())
 
     def setVols(self):
-        log_returns = np.log(self.pricesSoFar[:, 1:] / self.pricesSoFar[:, :-1])
+        log_returns = np.log(self.pricesSoFar[:, -self.windowSize:] / self.pricesSoFar[:, -(self.windowSize + 1):-1])
         self.vols = np.std(log_returns, axis=1, ddof=1)
 
     def getGreeks(self):
         return self.vols
 
     def getGreeksHistory(self):
-        return np.array(self.history).T
+        return np.array(self.history).T if self.history else np.empty((self.pricesSoFar.shape[0], 0))
 
 class LaggedPrices(Greek):
-    def __init__(self, pricesSoFar: np.ndarray, lag):
-        super().__init__()
+    def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, lag: int):
+        super().__init__(historyWindowSize)
         self.lag = lag
+        self.historyWindowSize = historyWindowSize
         self.history = []
-        pricesFillWindow = pricesSoFar.shape[1] > lag
-        self.prices = pricesSoFar[:, -(lag + 1):] if pricesFillWindow else pricesSoFar
+
+        # Only keep what's needed
+        self.prices = pricesSoFar[:, -(lag + historyWindowSize):]
         self.lagPrices = np.full(self.prices.shape[0], np.nan)
-        if pricesFillWindow:
-            self.lagPrices = pricesSoFar[:, -(lag + 1)]
-            self.history.append(self.lagPrices.copy())
+
+        # Backfill lagged prices history if enough data
+        if self.prices.shape[1] > lag:
+            for i in range(self.prices.shape[1] - lag):
+                lagged = self.prices[:, i]
+                self.history.append(lagged)
+            self.lagPrices = self.history[-1]
 
     def update(self, newDayPrices: np.ndarray):
-        self.prices = np.hstack([self.prices, newDayPrices.reshape(-1, 1)])
-        if self.prices.shape[1] > self.lag + 1:
-            self.prices = self.prices[:, -(self.lag + 1):]
+        self.prices = np.hstack((self.prices, newDayPrices.reshape(-1, 1)))
+
+        # Trim prices to keep only necessary columns
+        if self.prices.shape[1] > self.lag + self.historyWindowSize:
+            self.prices = self.prices[:, - (self.lag + self.historyWindowSize):]
+
         if self.prices.shape[1] > self.lag:
-            self.lagPrices = self.prices[:, 0]
+            self.lagPrices = self.prices[:, - (self.lag + 1)]
+            if len(self.history) >= self.historyWindowSize:
+                self.history.pop(0)
             self.history.append(self.lagPrices.copy())
 
     def getGreeks(self):
         return self.lagPrices
 
     def getGreeksHistory(self):
-        return np.array(self.history).T
+        return np.array(self.history).T if self.history else np.empty((self.prices.shape[0], 0))
 
 class Prices(Greek):
-    def __init__(self, pricesSoFar: np.ndarray):
-        super().__init__()
-        self.prices = pricesSoFar
-        self.history = [pricesSoFar[:, -1].copy()]  # Latest day
+    def __init__(self, historyWindowSize, pricesSoFar: np.ndarray):
+        super().__init__(historyWindowSize)
+        self.historyWindowSize = historyWindowSize
+
+        # Trim to at most historyWindowSize
+        self.prices = pricesSoFar[:, -historyWindowSize:]
+        self.history = [self.prices[:, i].copy() for i in range(self.prices.shape[1])]
 
     def update(self, newDayPrices: np.ndarray):
         self.prices = np.hstack([self.prices, newDayPrices.reshape(-1, 1)])
+        if self.prices.shape[1] > self.historyWindowSize:
+            self.prices = self.prices[:, -self.historyWindowSize:]
+
+        if len(self.history) >= self.historyWindowSize:
+            self.history.pop(0)
         self.history.append(newDayPrices.copy())
 
     def getGreeks(self):
         return self.prices[:, -1]
 
     def getGreeksHistory(self):
-        return np.array(self.history).T
+        return np.array(self.history).T if self.history else np.empty((self.prices.shape[0], 0))
 
-class GreeksManager(Greek):
-    def __init__(self, greeks: List[Greek]):
+class GreeksManager:
+    def __init__(self, greeks: dict[str, Greek]):
         self.greeks = greeks
         self.greeksCount = len(greeks)
 
-    def update(self, newDayPrices: np.ndarray):
-        for greek in self.greeks:
+    def updateGreeks(self, newDayPrices: np.ndarray):
+        for greek in self.greeks.values():
             greek.update(newDayPrices)
 
-    def getGreeksList(self) -> List[Greek]:
-        return self.greeks
+    def getGreeksHistoryDict(self) -> dict[str, pd.DataFrame]:
+        nInst, T = next(iter(self.greeks.values())).getGreeksHistory().shape
+        index = pd.date_range(start="2000-01-01", periods=T, freq="D")
 
-    def getGreeks(self):
-        greeksList = self.greeks
-        greeksData = []
+        historyDict = {f"inst_{i}": pd.DataFrame(index=index) for i in range(nInst)}
 
-        for i, greek in enumerate(greeksList):
-            greeksData.append(greek.getGreeks())
+        # Add Greek columns
+        for name, greek in self.greeks.items():
+            greekHist = greek.getGreeksHistory()  # shape: (nInst, T)
+            for i in range(nInst):
+                historyDict[f"inst_{i}"][name] = greekHist[i]
 
-        return np.array(greeksData)
+        for i in range(nInst):
+            df = historyDict[f"inst_{i}"]
+            try:
+                df = df[feature_names]
+            except KeyError:
+                print(f"\n[ERROR] Columns found: {df.columns}")
+                print(f"[ERROR] Columns expected: {feature_names}\n")
+                raise
+            historyDict[f"inst_{i}"] = df
 
-    def getGreeksHistory(self):
-        all_histories = [g.getGreeksHistory() for g in self.greeks]  # each (nInst, T)
-        return np.stack(all_histories, axis=-1)  # final: (nInst, T, nFeatures)
+        return historyDict
