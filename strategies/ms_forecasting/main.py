@@ -7,6 +7,10 @@ import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 import warnings
 from skforecast.exceptions import MissingValuesWarning
+from skforecast.preprocessing import RollingFeatures
+from skforecast.recursive import ForecasterRecursiveMultiSeries
+from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegressor
+from sklearn.preprocessing import StandardScaler
 
 warnings.simplefilter("ignore", category=MissingValuesWarning)
 
@@ -18,14 +22,18 @@ PRICE_LAGS = [1, 2, 3, 4, 5]
 VOL_WINDOWS = [5, 10, 20]
 MOMENTUM_WINDOWS = [3, 7, 14]
 
-# Unpack Model
 best_params = model_package["best_params"]
-best_lags = model_package["best_lags"]
-# transformer_exog = model_package["transformer_exog"]
-# window_features = model_package["window_features"]
-forecaster = model_package["forecaster"]
-feature_names = model_package["feature_names"]
-
+best_lags = 7
+forecaster = ForecasterRecursiveMultiSeries(
+    regressor           = HistGradientBoostingRegressor(random_state=8523, **best_params),
+    transformer_series  = None,
+    transformer_exog    = None,
+    lags                = best_lags,
+    window_features     = RollingFeatures(
+                                stats           = ['min', 'max'],
+                                window_sizes    = 10
+                            )
+)
 
 forecaster.dropna_from_series = False
 
@@ -35,9 +43,11 @@ prices = None
 greeksManager = None
 firstInit = True
 
-TRAINING_MOD = 5
-SIMPLE_THRESHOLD = 0.00
-TRAINING_WINDOW_SIZE = 750
+TRAINING_MOD = 1
+SIMPLE_THRESHOLD = 0.001
+TRAINING_WINDOW_SIZE = 500
+
+predictedLogReturnsHistory = []
 
 def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that they call
     global prices, greeksManager, firstInit
@@ -61,14 +71,25 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
 
     updatePositions(predictedLogReturns)
 
+    if day == 999:
+        toLog = np.vstack(predictedLogReturnsHistory)
+        np.save("./strategies/ms_forecasting/predicted_log_returns_days_750-1000.npy", toLog)
+
     return positions
 
 def fitForecaster():
-    logReturnsSoFar = np.log(prices[:, 1:] / prices[:, :-1])
+    pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
+    logReturnsSoFar = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
 
     seriesDict = getSeriesDict(logReturnsSoFar)
+    exogDict = greeksManager.getGreeksHistoryDict()
 
-    forecaster.fit(series=seriesDict, exog=greeksManager.getGreeksHistoryDict())
+    for inst, df in exogDict.items():
+        if df.isnull().values.any():
+            print(f"[WARNING] NaNs found in exog for {inst}, replacing with zeros")
+            exogDict[inst] = df.fillna(0)
+
+    forecaster.fit(series=seriesDict, exog=exogDict)
 
 def updatePositions(predictedLogReturns):
     global positions
@@ -87,11 +108,23 @@ def updatePositions(predictedLogReturns):
             pass
 
 def getPredictedLogReturns() -> pd.DataFrame:
-    return forecaster.predict(
+    exog = greeksManager.getGreeksHistoryDict()
+
+    for inst, df in exog.items():
+        if df.isnull().values.any():
+            nan_cols = df.columns[df.isnull().any()]
+            print(f"[FATAL] NaNs in {inst} at prediction! Columns: {list(nan_cols)}")
+            print(df[nan_cols].tail())
+
+    predictedLogReturns = forecaster.predict(
         steps   = 1,
-        exog    = greeksManager.getGreeksHistoryDict(),
+        exog    = exog,
         levels  = None,
     )["pred"].values
+
+    predictedLogReturnsHistory.append(predictedLogReturns)
+
+    return predictedLogReturns
 
 def getSeriesDict(logReturnsSoFar):
     T = logReturnsSoFar.shape[1]
@@ -109,7 +142,7 @@ def initialiseWithPrices():
 
 def createGreeksManager():
     # Dictionary keys match those used in exog in training of the model so that the transformer can work correctly
-    # TODO Havent got this working yet though
+    # Haven't got this working yet though, I think best approach is to create a new model at the beginning
 
     laggedPricesPrefix  = "greek_lag_"
     momentumPrefix      = "greek_momentum_"
@@ -138,8 +171,13 @@ def createGreeksManager():
             }
     )
 
-    assert len(greeksDict) == len(feature_names)
     gm = GreeksManager(greeksDict)
+
+    for name, greek in gm.greeks.items():
+        gh = greek.getGreeksHistory()
+        if np.isnan(gh).any():
+            print(f"[DEBUG] NaN in {name} history!")
+
     return gm
 
 # TODO check that these greeks are producing the correct history because the history part was all chat gpt
@@ -170,7 +208,9 @@ class Momentum(Greek):
 
         # Backfill history if we have enough price data
         if self.pricesSoFar.shape[1] >= windowSize + 1:
-            for i in range(self.pricesSoFar.shape[1] - windowSize):
+            start = max(0, self.pricesSoFar.shape[1] - (self.historyWindowSize + self.windowSize))
+            end = self.pricesSoFar.shape[1] - self.windowSize
+            for i in range(start, end):
                 window = self.pricesSoFar[:, i:i + windowSize + 1]
                 log_returns = np.log(window[:, 1:] / window[:, :-1])
                 momentum = np.nansum(log_returns, axis=1)
@@ -280,7 +320,6 @@ class Prices(Greek):
         super().__init__(historyWindowSize)
         self.historyWindowSize = historyWindowSize
 
-        # Trim to at most historyWindowSize
         self.prices = pricesSoFar[:, -historyWindowSize:]
         self.history = [self.prices[:, i].copy() for i in range(self.prices.shape[1])]
 
@@ -319,15 +358,5 @@ class GreeksManager:
             greekHist = greek.getGreeksHistory()  # shape: (nInst, T)
             for i in range(nInst):
                 historyDict[f"inst_{i}"][name] = greekHist[i]
-
-        for i in range(nInst):
-            df = historyDict[f"inst_{i}"]
-            try:
-                df = df[feature_names]
-            except KeyError:
-                print(f"\n[ERROR] Columns found: {df.columns}")
-                print(f"[ERROR] Columns expected: {feature_names}\n")
-                raise
-            historyDict[f"inst_{i}"] = df
 
         return historyDict
