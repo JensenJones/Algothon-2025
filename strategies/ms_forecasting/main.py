@@ -10,11 +10,11 @@ from skforecast.exceptions import MissingValuesWarning
 
 warnings.simplefilter("ignore", category=MissingValuesWarning)
 
-modelFilePath = "./saved models/forecaster_model_date-2025-07-03_time-16-49-04.pkl"
+modelFilePath = "./saved models/forecaster_model_date-2025-07-04_time-13-24-17.pkl"
 model_package = joblib.load(modelFilePath)
 
 # For Greeks
-LAGS = [1, 2, 3, 4, 5]
+PRICE_LAGS = [1, 2, 3, 4, 5]
 VOL_WINDOWS = [5, 10, 20]
 MOMENTUM_WINDOWS = [3, 7, 14]
 
@@ -125,14 +125,12 @@ def greeksToScaledExogDict(currentGreeks: np.ndarray) -> dict:
 
     return exogDict
 
-
-
 def initialiseWithPrices():
     global greeksManager
     greeksManager = createGreeksManager()
 
 def createGreeksManager():
-    lagged_prices_greeks = [LaggedPrices(prices, lag) for lag in LAGS]
+    lagged_prices_greeks = [LaggedPrices(prices, lag) for lag in PRICE_LAGS]
     vol_greeks = [Volatility(prices, window) for window in VOL_WINDOWS]
     momentum_greeks = [Momentum(prices, window) for window in MOMENTUM_WINDOWS]
     greeks = (
