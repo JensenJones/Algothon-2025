@@ -13,7 +13,7 @@ from numpy import ndarray
 from pandas import DataFrame
 
 # CONSTANTS #######################################################################################
-RAW_PRICES_FILEPATH: str = "./sourceCode/prices.txt"
+RAW_PRICES_FILEPATH: str = "./sourceCode/1000Prices.txt"
 START_DAY: int = 0
 END_DAY: int = 0
 INSTRUMENT_POSITION_LIMIT: int = 10000
@@ -102,7 +102,7 @@ class Params:
             strategy_function_name: str = default_strategy_function_name,
             strategy_function: FunctionType | None = None,
             start_day: int = 1,
-            end_day: int = 750,
+            end_day: int = 1000,
             enable_commission: bool = True,
             graphs: List[str] = ["cum-pnl", "sharpe-heat-map", "daily-pnl"],
     ) -> None:
@@ -142,7 +142,7 @@ def parse_command_line_args() -> Params:
                     if (
                             params.start_day > params.end_day
                             or params.start_day < 1
-                            or params.end_day > 750
+                            or params.end_day > 1000
                     ):
                         raise Exception(usage_error)
             elif current_arg == "--disable-comms":
@@ -204,7 +204,7 @@ def parse_command_line_args_as_params(argvInput) -> Params:
                     if (
                             params.start_day > params.end_day
                             or params.start_day < 1
-                            or params.end_day > 750
+                            or params.end_day > 1000
                     ):
                         raise Exception(usage_error)
             elif current_arg == "--disable-comms":

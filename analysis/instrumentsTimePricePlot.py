@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def main():
-    prices = np.loadtxt("../sourceCode/prices.txt")
+    prices = np.loadtxt("./sourceCode/1000Prices.txt")
     prices = prices.T # transpose so we have shape 50 (instrument), 750(price at day)
 
     for instrument in prices:
@@ -12,7 +12,7 @@ def main():
     plt.xlabel("Day")
     plt.ylabel("Price")
     plt.grid(True)
-    plt.savefig("AllInstrumentsVisualised_750Days", dpi = 200)
+    plt.savefig("./analysis/AllInstrumentsVisualised_1000Days", dpi = 200)
 
 
 if __name__ == "__main__":

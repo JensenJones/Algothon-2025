@@ -26,7 +26,6 @@ best_lags = model_package["best_lags"]
 forecaster = model_package["forecaster"]
 feature_names = model_package["feature_names"]
 
-TRAINING_WINDOW_SIZE = 200
 
 forecaster.dropna_from_series = False
 
@@ -36,19 +35,25 @@ prices = None
 greeksManager = None
 firstInit = True
 
+TRAINING_MOD = 5
 SIMPLE_THRESHOLD = 0.00
+TRAINING_WINDOW_SIZE = 750
 
 def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that they call
     global prices, greeksManager, firstInit
 
     prices = prcSoFar
     newDayPrices = prcSoFar[:, -1] # shape (50, 1)
+    day = prices.shape[1]
+
+    if day < TRAINING_WINDOW_SIZE + max(PRICE_LAGS + VOL_WINDOWS + MOMENTUM_WINDOWS):
+        return positions
 
     if firstInit:
         greeksManager = createGreeksManager()
         initialiseWithPrices()
         firstInit = False
-    else:
+    elif day % TRAINING_MOD == 0:
         greeksManager.updateGreeks(newDayPrices)
 
     fitForecaster()
