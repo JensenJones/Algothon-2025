@@ -1,0 +1,4 @@
+channels:
+  - defaults
+channel_priority: strict
+prefix_data_interoperability: false
