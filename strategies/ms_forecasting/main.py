@@ -25,9 +25,9 @@ MOMENTUM_WINDOWS = [3, 7, 14]
 best_params = model_package["best_params"]
 best_lags = 7
 forecaster = ForecasterRecursiveMultiSeries(
-    regressor           = HistGradientBoostingRegressor(random_state=8523, **best_params),
+    regressor           = GradientBoostingRegressor(random_state=8523, **best_params),
     transformer_series  = None,
-    transformer_exog    = None,
+    transformer_exog    = StandardScaler(),
     lags                = best_lags,
     window_features     = RollingFeatures(
                                 stats           = ['min', 'max'],
