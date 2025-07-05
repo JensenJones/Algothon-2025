@@ -9,7 +9,6 @@ __pycache__/
 *.pyd
 
 # NumPy and other data outputs
-*.npy
 *.npz
 *.csv
 

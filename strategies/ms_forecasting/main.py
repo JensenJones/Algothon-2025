@@ -1,4 +1,3 @@
-# Load
 from typing import List
 
 import joblib
@@ -25,7 +24,7 @@ MOMENTUM_WINDOWS = [3, 7, 14]
 best_params = model_package["best_params"]
 best_lags = 7
 forecaster = ForecasterRecursiveMultiSeries(
-    regressor           = GradientBoostingRegressor(random_state=8523, **best_params),
+    regressor           = HistGradientBoostingRegressor(random_state=8523, **best_params),
     transformer_series  = None,
     transformer_exog    = StandardScaler(),
     lags                = best_lags,
@@ -35,7 +34,7 @@ forecaster = ForecasterRecursiveMultiSeries(
                             )
 )
 
-forecaster.dropna_from_series = False
+# forecaster.dropna_from_series = False
 
 nInst = 50
 positions = np.zeros(nInst)
@@ -79,9 +78,12 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
 
 def fitForecaster():
     pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
-    logReturnsSoFar = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
+    logReturnsSoFarNp = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
+    print(logReturnsSoFarNp.shape)
+    logReturns = pd.DataFrame(logReturnsSoFarNp)
+    logReturns.columns = [f"inst_{i}" for i in range(logReturns.shape[1])]
 
-    seriesDict = getSeriesDict(logReturnsSoFar)
+    # seriesDict = getSeriesDict(logReturnsSoFarNp)
     exogDict = greeksManager.getGreeksHistoryDict()
 
     for inst, df in exogDict.items():
@@ -89,10 +91,19 @@ def fitForecaster():
             print(f"[WARNING] NaNs found in exog for {inst}, replacing with zeros")
             exogDict[inst] = df.fillna(0)
 
-    forecaster.fit(series=seriesDict, exog=exogDict)
+    if logReturns.isnull().values.any():
+        print(f"[WARNING] NaN's found in your log returns dickhead, replacing with zeros")
+        logReturns = df.fillna(0)
+
+    forecaster.fit(
+        series=logReturns,
+        exog=exogDict
+    )
 
 def updatePositions(predictedLogReturns):
     global positions
+
+    print(predictedLogReturns.shape)
 
     for inst, predictedLogReturn in enumerate(predictedLogReturns):
         if np.isnan(predictedLogReturn):
@@ -348,15 +359,30 @@ class GreeksManager:
             greek.update(newDayPrices)
 
     def getGreeksHistoryDict(self) -> dict[str, pd.DataFrame]:
-        nInst, T = next(iter(self.greeks.values())).getGreeksHistory().shape
-        index = pd.date_range(start="2000-01-01", periods=T, freq="D")
+        greekHistoryArray = [greek.getGreeksHistory()[:, :, np.newaxis] for greek in self.greeks.values()]
+        greekArrayNp = np.concatenate(greekHistoryArray, axis=-1)  # (days, instruments, num_greeks)
+        featureNames = list(self.greeks.keys())
 
-        historyDict = {f"inst_{i}": pd.DataFrame(index=index) for i in range(nInst)}
+        # Dict must now have each instrument as the key to all instrument data
+        # Therefore shape of (50, greeksCount, days)
+        exogDict = {
+            f"inst_{i}": pd.DataFrame(greekArrayNp[:, i, :],
+                                     columns = featureNames)
+            for i in range(greekArrayNp.shape[1])
+        }
 
-        # Add Greek columns
-        for name, greek in self.greeks.items():
-            greekHist = greek.getGreeksHistory()  # shape: (nInst, T)
-            for i in range(nInst):
-                historyDict[f"inst_{i}"][name] = greekHist[i]
+        return exogDict
 
-        return historyDict
+    # def getGreeksHistoryDict(self) -> dict[str, pd.DataFrame]:
+    #     nInst, T = next(iter(self.greeks.values())).getGreeksHistory().shape
+    #     index = pd.date_range(start="2000-01-01", periods=T, freq="D")
+    #
+    #     historyDict = {f"inst_{i}": pd.DataFrame(index=index) for i in range(nInst)}
+    #
+    #     # Add Greek columns
+    #     for name, greek in self.greeks.items():
+    #         greekHist = greek.getGreeksHistory()  # shape: (nInst, T)
+    #         for i in range(nInst):
+    #             historyDict[f"inst_{i}"][name] = greekHist[i]
+    #
+    #     return historyDict
