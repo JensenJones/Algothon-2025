@@ -11,11 +11,11 @@ def main():
     print(f"Shape of predictions = {predictedLogReturns.shape}")
 
     prices = np.loadtxt("./sourceCode/1000Prices.txt").T[:, -250:] # (50, 250)
-    print(f"Shape of prices = {prices.shape}")
 
     actualLogReturns = np.log( prices[:, 1:] / prices[:, :-1] ) # (50, 249)
+    print(f"Shape of actual logReturns = {actualLogReturns.shape}")
 
-    instrument = 0
+    instrument = 4
 
     plt.figure(figsize=(12, 5))
     plt.plot(predictedLogReturns[instrument, :], label="Predicted LogReturn", color='dodgerblue')

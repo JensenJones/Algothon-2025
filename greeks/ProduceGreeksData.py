@@ -1,69 +1,67 @@
 import sys
 import os
-
-from greeks.GreekGeneratingClasses.BollingerBandsCalculator import BollingerBandsCalculator
-from greeks.GreekGeneratingClasses.BollingerBandsSingleDirection import BollingerBandsSingleDirection
-from greeks.GreekGeneratingClasses.Momentum import Momentum
-from greeks.GreekGeneratingClasses.Volatility import Volatility
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from greeks.GreekGeneratingClasses.Momentum import Momentum
+from greeks.GreekGeneratingClasses.Prices import Prices
+from greeks.GreekGeneratingClasses.Volatility import Volatility
 from greeks.GreeksManager import GreeksManager
 from greeks.GreekGeneratingClasses.LaggedPrices import LaggedPrices
-from greeks.GreekGeneratingClasses.LogReturns import LogReturns
-from greeks.GreekGeneratingClasses.RollingMeans import RollingMeans
-from greeks.GreekGeneratingClasses.RsiCalculator import RsiCalculator
-from greeks.GreekGeneratingClasses.RsiSingleDirection import RsiSingleDirection
+# from greeks.GreekGeneratingClasses.LogReturns import LogReturns
 
 import numpy as np
 
-LAGS = [1, 2, 3, 4, 5]
+PRICE_LAGS = [1, 2, 3, 4, 5]
 VOL_WINDOWS = [5, 10, 20]
 MOMENTUM_WINDOWS = [3, 7, 14]
-ROLLING_MEANS_WINDOW_SIZE = 14
-RSIC_WINDOW_SIZE = 14
-RSI_LONG_THRESHOLD = 30
-RSI_SHORT_THRESHOLD = 70
-BB_WINDOW_SIZE = 20
+TRAINING_WINDOW_SIZE = 100
 
 prices = np.loadtxt("./sourceCode/prices.txt").T
 
 
 def main():
     gm = createGreeksManager()
-
     produceGreeksData(gm)
-
+    print("Produced the data for you cuz")
 
 def createGreeksManager():
-    pricesSoFar = prices[:, 0:1]
-    # longRsiC = RsiCalculator(pricesSoFar, RSIC_WINDOW_SIZE)
-    # shortRsiC = RsiCalculator(pricesSoFar, RSIC_WINDOW_SIZE)
-    # lowerBbc = BollingerBandsCalculator(pricesSoFar, BB_WINDOW_SIZE)
-    # upperBbc = BollingerBandsCalculator(pricesSoFar, BB_WINDOW_SIZE)
-    #
-    # def lowerBbComp(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    #     return (a < b).astype(int)
-    #
-    # def upperBbComp(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    #     return (a > b).astype(int)
+    # Dictionary keys match those used in exog in training of the model so that the transformer can work correctly
+    # Haven't got this working yet though, I think best approach is to create a new model at the beginning
 
-    lagged_prices_greeks = [LaggedPrices(pricesSoFar, lag) for lag in LAGS]
-    vol_greeks = [Volatility(pricesSoFar, window) for window in VOL_WINDOWS]
-    momentum_greeks = [Momentum(pricesSoFar, window) for window in MOMENTUM_WINDOWS]
-    greeks = (
-            lagged_prices_greeks +
-            vol_greeks +
-            momentum_greeks +
-            [
-                LogReturns(pricesSoFar, 1),
-                # RollingMeans(pricesSoFar, ROLLING_MEANS_WINDOW_SIZE),
-                # RsiSingleDirection(longRsiC, "long", RSI_LONG_THRESHOLD),
-                # RsiSingleDirection(shortRsiC, "short", RSI_SHORT_THRESHOLD),
-                # BollingerBandsSingleDirection(pricesSoFar, lowerBbc, "lower", lowerBbComp),
-                # BollingerBandsSingleDirection(pricesSoFar, upperBbc, "upper", upperBbComp)
-            ])
-    gm = GreeksManager(greeks)
+    laggedPricesPrefix  = "greek_lag_"
+    momentumPrefix      = "greek_momentum_"
+    volatilityPrefix    = "greek_volatility_"
+    pricesString        = "price"
+
+    laggedPricesDict = {
+        f"{laggedPricesPrefix}{lag}": LaggedPrices(TRAINING_WINDOW_SIZE, prices, lag)
+        for lag in PRICE_LAGS
+    }
+    volatilityDict = {
+        f"{volatilityPrefix}{window}" : Volatility(TRAINING_WINDOW_SIZE, prices, window)
+        for window in VOL_WINDOWS
+    }
+    momentumDict = {
+        f"{momentumPrefix}{window}" : Momentum(TRAINING_WINDOW_SIZE, prices, window)
+        for window in MOMENTUM_WINDOWS
+    }
+
+    greeksDict = (
+            laggedPricesDict |
+            volatilityDict   |
+            momentumDict     |
+            {
+                pricesString : Prices(TRAINING_WINDOW_SIZE, prices)
+            }
+    )
+
+    gm = GreeksManager(greeksDict)
+
+    for name, greek in gm.greeks.items():
+        gh = greek.getGreeksHistory()
+        if np.isnan(gh).any():
+            print(f"[DEBUG] NaN in {name} history!")
+
     return gm
 
 
@@ -77,7 +75,7 @@ def produceGreeksData(gm):
 
     for greekToLog, listOfGreeks in toLog.items():
         print(f"Appending greeks of name {greekToLog}\nShape: {np.stack(listOfGreeks).shape}\n")
-        np.save(f"./greeks/greeksData/{greekToLog}_750_day_data.npy", np.stack(listOfGreeks))
+        np.save(f"./greeks/greeksData_750Days/{greekToLog}_750_day_data.npy", np.stack(listOfGreeks))
 
 def addToLog(gm, toLog):
     for greek in gm.getGreeksList():
