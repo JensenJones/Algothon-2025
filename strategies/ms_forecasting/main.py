@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries
 import warnings
 from skforecast.exceptions import MissingValuesWarning
 from skforecast.preprocessing import RollingFeatures
@@ -8,14 +7,15 @@ from skforecast.recursive import ForecasterRecursiveMultiSeries
 from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-warnings.simplefilter("ignore", category=MissingValuesWarning)
+from greeks.GreeksManager import GreeksManager
 
-modelFilePath = "./saved models/forecaster_model_date-2025-07-04_time-13-24-17.pkl"
+warnings.simplefilter("ignore", category=MissingValuesWarning)
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
     regressor           = HistGradientBoostingRegressor(random_state=8523, learning_rate=0.09),
     transformer_series  = None,
-    transformer_exog    = MinMaxScaler(feature_range=(-1, 1)),
+    # transformer_exog    = MinMaxScaler(feature_range=(-1, 1)),
+    transformer_exog    = StandardScaler(),
     lags                = 7,
     # window_features     = RollingFeatures(
     #                             stats           = ['min', 'max'],
@@ -32,14 +32,14 @@ logReturnsForecaster.dropna_from_series = True
 
 nInst = 50
 positions = np.zeros(nInst)
-prices = None
-greeksManager = None
+prices: np.ndarray = None
+greeksManager: GreeksManager = None
 firstInit = True
-logReturns = None
+logReturns: pd.DataFrame = None
 
-TRAINING_MOD = 7
+TRAINING_MOD = 1
 SIMPLE_THRESHOLD = 0.01
-TRAINING_WINDOW_SIZE = 500
+TRAINING_WINDOW_SIZE = 200
 
 predictedLogReturnsHistory = []
 
@@ -56,10 +56,12 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
 
     if firstInit:
         greeksManager = createGreeksManager()
+        updateLogReturns()
         fitForecaster()
         firstInit = False
     else:
         greeksManager.updateGreeks(newDayPrices)
+        updateLogReturns()
 
     if day % TRAINING_MOD == 0:
         fitForecaster()
@@ -81,8 +83,6 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
 def fitForecaster():
     global logReturns
 
-    setLogReturns()
-
     exogDict = greeksManager.getGreeksHistoryDict()
 
     # Trim exogDict to exclude the last row (current day)
@@ -96,8 +96,11 @@ def fitForecaster():
         exog=exogDict
     )
 
+    print(f"Forecaster fit with last day of log returns being {logReturns["inst_0"].tail(1)}")
+    print(f"And with last day of exog being                   {exogDict["inst_0"].tail(1)}")
+    print(f"Current day exogs (Should be the next last)are    {greeksManager.getGreeksDict()["inst_0"].tail(1)}\n")
 
-def setLogReturns():
+def updateLogReturns():
     global logReturns
     pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
     logReturnsSoFarNp = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
@@ -120,16 +123,17 @@ def updatePositions(predictedLogReturns):
         else:
             pass
 
-def getPredictedLogReturns(steps) -> pd.DataFrame:
-    setLogReturns()
+def getPredictedLogReturns(steps) -> np.ndarray:
     exogDict = greeksManager.getGreeksDict()
 
-    predictedLogReturns = logReturnsForecaster.predict(
+    prediction = logReturnsForecaster.predict(
         steps   = steps,
         last_window = logReturns.tail(max(logReturnsForecaster.lags)),
         exog    = exogDict,
         levels  = list(logReturns.columns),
-    )["pred"].values
+    )
+
+    predictedLogReturns = prediction["pred"].values
 
     predictedLogReturnsHistory.append(predictedLogReturns)
 
@@ -139,7 +143,7 @@ def createGreeksManager():
     laggedPricesPrefix  = "greek_lag_"
     momentumPrefix      = "greek_momentum_"
     volatilityPrefix    = "greek_volatility_"
-    skewnessPrefix      = "greek_skeqness_"
+    skewnessPrefix      = "greek_skewness_"
     pricesString        = "price"
 
     laggedPricesDict = {
