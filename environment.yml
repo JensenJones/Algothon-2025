@@ -1,7 +1,0 @@
-name: sigalgo
-channels:
-  - defaults
-dependencies:
-  - python=3.13
-  - numpy
-prefix: /opt/homebrew/anaconda3/envs/sigalgo
