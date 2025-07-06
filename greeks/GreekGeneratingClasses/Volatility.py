@@ -4,28 +4,47 @@ from greeks.GreekGeneratingClasses.GreekBaseClass import Greek
 
 
 class Volatility(Greek):
-    def __init__(self, pricesSoFar, windowSize = 5):
-        super().__init__()
-
-        pricesFillWindow = pricesSoFar.shape[1] >= windowSize
-        self.pricesSoFar = pricesSoFar[:, -(windowSize + 1):] if pricesFillWindow else pricesSoFar
+    def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize=5):
+        super().__init__(historyWindowSize)
         self.windowSize = windowSize
+        self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
         self.vols = np.full(pricesSoFar.shape[0], np.nan)
+        self.history = []
 
-        if pricesFillWindow:
-            self.setVols()
+        # Backfill exactly `historyWindowSize` values
+        for i in range(self.historyWindowSize):
+            start = i
+            end = i + self.windowSize + 1
+            window = self.pricesSoFar[:, start:end]
+
+            if window.shape[1] <= 1:
+                vol = np.full(window.shape[0], np.nan)
+            else:
+                log_returns = np.log(window[:, 1:] / window[:, :-1])
+                vol = np.std(log_returns, axis=1, ddof=1)
+
+            self.history.append(vol)
+
+        self.history = np.stack(self.history, axis=1)  # (nInst, historyWindowSize)
+        self.vols = self.history[:, -1]
 
     def update(self, newDayPrices: np.ndarray):
         self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
+        self.pricesSoFar = self.pricesSoFar[:, 1:]
 
-        if self.pricesSoFar.shape[1] >= self.windowSize:
-            self.pricesSoFar = self.pricesSoFar[:, -self.windowSize:]
-            self.setVols()
+        # Calculate and store latest volatility
+        window = self.pricesSoFar[:, -self.windowSize - 1:]
 
-    def setVols(self):
-        log_returns = np.log(self.pricesSoFar[:, 1:] / self.pricesSoFar[:, :-1])
-        self.vols = np.std(log_returns, axis=1, ddof=1)
+        if window.shape[1] <= 1:
+            vol = np.full(window.shape[0], np.nan)
+        else:
+            log_returns = np.log(window[:, 1:] / window[:, :-1])
+            vol = np.std(log_returns, axis=1, ddof=1)
 
+        self.history = np.hstack((self.history[:, 1:], vol[:, np.newaxis]))
 
     def getGreeks(self):
         return self.vols
+
+    def getGreeksHistory(self):
+        return np.array(self.history)

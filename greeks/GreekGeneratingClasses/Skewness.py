@@ -1,40 +1,34 @@
-import numpy as np
 from greeks.GreekGeneratingClasses.GreekBaseClass import Greek
+import numpy as np
 
-class Momentum(Greek):
+class Skewness(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
         super().__init__(historyWindowSize)
         self.windowSize = windowSize
         self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
-        self.momentum = np.full(pricesSoFar.shape[0], np.nan)
-
         self.history = []
+
         for i in range(self.historyWindowSize):
-            start = i
-            end = i + windowSize + 1
-            window = self.pricesSoFar[:, start:end]
-
+            window = self.pricesSoFar[:, i:i+windowSize+1]
             log_returns = np.log(window[:, 1:] / window[:, :-1])
-            momentum = np.nansum(log_returns, axis=1)
-            self.history.append(momentum)
+            skew = ((log_returns - log_returns.mean(axis=1, keepdims=True))**3).mean(axis=1)
+            skew /= (np.std(log_returns, axis=1, ddof=1)**3 + 1e-9)
+            self.history.append(skew)
 
-        self.history = np.stack(self.history, axis=1)  # shape: (nInst, historyWindowSize)
-        self.momentum = self.history[:, -1]
+        self.history = np.stack(self.history, axis=1)
 
     def update(self, newDayPrices: np.ndarray):
         self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
         self.pricesSoFar = self.pricesSoFar[:, 1:]
 
-        # Calculate current momentum
         window = self.pricesSoFar[:, -self.windowSize-1:]
         log_returns = np.log(window[:, 1:] / window[:, :-1])
-        momentum = np.nansum(log_returns, axis=1)
-        self.momentum = momentum
-
-        self.history = np.hstack((self.history[:, 1:], momentum[:, np.newaxis]))
+        skew = ((log_returns - log_returns.mean(axis=1, keepdims=True))**3).mean(axis=1)
+        skew /= (np.std(log_returns, axis=1, ddof=1)**3 + 1e-9)
+        self.history = np.hstack((self.history[:, 1:], skew[:, None]))
 
     def getGreeks(self):
-        return self.momentum
+        return self.history[:, -1]
 
     def getGreeksHistory(self):
         return self.history
