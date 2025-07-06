@@ -38,7 +38,7 @@ TRAINING_WINDOW_SIZE = 700
 
 predictedLogReturnsHistory = []
 
-def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that they call
+def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
     global prices, greeksManager, firstInit
 
     prices = prcSoFar

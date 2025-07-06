@@ -1,0 +1,17 @@
+name: Algothon-2025
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas
+  - numpy=2.2
+  - matplotlib
+  - scikit-learn
+  - seaborn
+  - statsmodels
+  - ipython
+  - jinja2
+  - notebook
+  - prophet
+  - scipy
+prefix: /Users/jensen/anaconda3/envs/Algothon-2025
