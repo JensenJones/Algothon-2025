@@ -49,15 +49,15 @@ def getMyPosition(prcSoFar: np.ndarray): # TODO ---- This is the function that t
     prices = prcSoFar
     newDayPrices = prcSoFar[:, -1] # shape (50, 1)
     day = prices.shape[1]
+
     if day < TRAINING_WINDOW_SIZE + max(PRICE_LAGS + VOL_WINDOWS + MOMENTUM_WINDOWS + SKEWNESS_WINDOWS):
-        print(f"Shouldnt be hitting this, prcSoFar.shape = {prcSoFar.shape}")
+        print(f"Shouldn't be hitting this, prcSoFar.shape = {prcSoFar.shape}")
         return positions
 
     if firstInit:
         greeksManager = createGreeksManager()
-        initialiseWithPrices()
-        firstInit = False
         fitForecaster()
+        firstInit = False
     else:
         greeksManager.updateGreeks(newDayPrices)
 
@@ -135,12 +135,7 @@ def getPredictedLogReturns(steps) -> pd.DataFrame:
 
     return predictedLogReturns
 
-def initialiseWithPrices():
-    global greeksManager
-    greeksManager = createGreeksManager()
-
 def createGreeksManager():
-    # For Greeks
     laggedPricesPrefix  = "greek_lag_"
     momentumPrefix      = "greek_momentum_"
     volatilityPrefix    = "greek_volatility_"
@@ -177,9 +172,13 @@ def createGreeksManager():
     gm = GreeksManager(greeksDict)
 
     for name, greek in gm.greeks.items():
-        gh = greek.getGreeksHistory()
-        if np.isnan(gh).any():
+        histGreeks = greek.getGreeksHistory()
+        if np.isnan(histGreeks).any():
             print(f"[DEBUG] NaN in {name} history!")
+
+        currGreeks = greek.getGreeks()
+        if np.isnan(currGreeks).any():
+            print(f"[DEBUG] NaN in {name} current greeks!")
 
     return gm
 
