@@ -27,6 +27,47 @@ def main():
     plt.grid(True)
     plt.show()
 
+    correctPosChange = 0
+    correctNegChange = 0
+    falsePosChange = 0
+    falseNegChange = 0
+    correctZeroChange = 0
+    falseZeroChange = 0
+
+    for inst in range(50):
+        for day in range(249):
+            if predictedLogReturns[inst, day] < 0:
+                if actualLogReturns[inst, day] < 0:
+                    correctNegChange += 1
+                else:
+                    falseNegChange += 1
+            elif predictedLogReturns[inst, day] > 0:
+                if actualLogReturns[inst, day] > 0:
+                    correctPosChange += 1
+                else:
+                    falsePosChange += 1
+            else:
+                if actualLogReturns[inst, day] == 0:
+                    correctZeroChange += 1
+                else:
+                    falseZeroChange += 1
+
+    print(f"Correct Positive Change prediction count = {correctPosChange}")
+    print(f"Correct Zero Change prediction count     = {correctZeroChange}")
+    print(f"Correct Negative Change prediction count = {correctNegChange}")
+    print(f"False Positive Change prediction count   = {falsePosChange}")
+    print(f"False Zero Change prediction count       = {falseZeroChange}")
+    print(f"False Negative Change prediction count   = {falseNegChange}")
+
+    correct_pct = ((correctZeroChange + correctPosChange + correctNegChange) /
+                   (249*50)) * 100
+
+    pink_bold = "\033[1;35m"
+    reset = "\033[0m"
+
+    print(f"{pink_bold}Correct percentage = {correct_pct:.2f}%{reset}")
+
+
 
 if __name__ == '__main__':
     main()

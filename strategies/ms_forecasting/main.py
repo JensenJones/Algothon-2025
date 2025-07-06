@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries
 import warnings
 from skforecast.exceptions import MissingValuesWarning
 from skforecast.preprocessing import RollingFeatures
@@ -9,8 +8,6 @@ from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegr
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 warnings.simplefilter("ignore", category=MissingValuesWarning)
-
-modelFilePath = "./saved models/forecaster_model_date-2025-07-04_time-13-24-17.pkl"
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
     regressor           = HistGradientBoostingRegressor(random_state=8523, learning_rate=0.09),
