@@ -5,7 +5,11 @@ from importlib.machinery import ModuleSpec
 from types import ModuleType, FunctionType
 from typing import TypedDict, List, Dict
 
+from skforecast.plot import set_dark_theme
+
 import matplotlib.pyplot as plt
+
+set_dark_theme()
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
@@ -297,16 +301,19 @@ def generate_stats_subplot(
             np.sum(results["daily_pnl"] > 0) / len(results["daily_pnl"]) * 100
     )
 
+    mean_pnl = results["daily_pnl"].mean()
+    std_pnl = results["daily_pnl"].std()
+    sharpe_ratio = np.sqrt(250) * mean_pnl / std_pnl if std_pnl != 0 else 0.0
+
     stats_text: str = (
-            f"Ran from day {results["start_day"]} to {results["end_day"]}\n"
+            f"Ran from day {results['start_day']} to {results['end_day']}\n"
             r"$\bf{Commission \ Turned \ On:}$" + f"{enable_commission}\n\n"
                                                   r"$\bf{Backtester \ Stats}$" + "\n\n"
-                                                                                 f"Mean PnL: ${results["daily_pnl"].mean():.2f}\n"
-                                                                                 f"Std Dev: ${results["daily_pnl"].std():.2f}\n"
-                                                                                 f"Annualised Sharpe Ratio: "
-                                                                                 f"{np.sqrt(250) * results["daily_pnl"].mean() / results["daily_pnl"].std():.2f}\n"
-                                                                                 f"Win Rate %: {win_rate_pct:.2f}% \n"
-                                                                                 f"Score: {results["daily_pnl"].mean() - 0.1 * results["daily_pnl"].std():.2f}"
+                                                                                 f"Mean PnL: ${mean_pnl:.2f}\n"
+                                                                                 f"Std Dev: ${std_pnl:.2f}\n"
+                                                                                 f"Annualised Sharpe Ratio: {sharpe_ratio:.2f}\n"
+                                                                                 f"Win Rate %: {np.sum(results['daily_pnl'] > 0) / len(results['daily_pnl']) * 100:.2f}% \n"
+                                                                                 f"Score: {mean_pnl - 0.1 * std_pnl:.2f}"
     )
 
     subplot.text(
@@ -401,7 +408,7 @@ def generate_sharpe_heat_map(results: BacktesterResults, subplot: Axes) -> Axes:
     means: ndarray = np.mean(returns, axis=1)
     stds: ndarray = np.std(returns, axis=1)
 
-    sharpe_ratios: ndarray = (means / stds) * np.sqrt(250)
+    sharpe_ratios = np.divide(means, stds, out=np.zeros_like(means), where=stds != 0) * np.sqrt(250)
 
     # Reshape grid into (1, 50) for the horizontal heatmap
     sharpe_grid = sharpe_ratios.reshape(1, -1)
@@ -509,7 +516,7 @@ class Backtester:
         # Iterate through specified timeline
         for day in range(start_day, end_day + 1):
             # Get the prices so far
-            prices_so_far: ndarray = self.price_history[:, start_day - 1: day]
+            prices_so_far: ndarray = self.price_history[:, 0: day]
 
             # Get desired positions from strategy
             new_positions: ndarray = self.getMyPosition(prices_so_far)
@@ -665,6 +672,7 @@ def main() -> None:
     backtester.show_dashboard(backtester_results, params.graphs)
 
     backtester.show_per_instrument_stats(backtester_results)
+    print(f"Parsed start_day: {params.start_day}, end_day: {params.end_day}")
 
 if __name__ == '__main__':
     main()
