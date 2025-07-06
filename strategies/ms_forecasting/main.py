@@ -14,13 +14,8 @@ warnings.simplefilter("ignore", category=MissingValuesWarning)
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
     regressor           = HistGradientBoostingRegressor(random_state=8523, learning_rate=0.09),
     transformer_series  = None,
-    # transformer_exog    = MinMaxScaler(feature_range=(-1, 1)),
     transformer_exog    = StandardScaler(),
     lags                = 7,
-    # window_features     = RollingFeatures(
-    #                             stats           = ['min', 'max'],
-    #                             window_sizes    = 7
-    #                         )
 )
 
 PRICE_LAGS = [1, 2, 3, 4, 5]
@@ -37,9 +32,9 @@ greeksManager: GreeksManager = None
 firstInit = True
 logReturns: pd.DataFrame = None
 
-TRAINING_MOD = 1
+TRAINING_MOD = 7
 SIMPLE_THRESHOLD = 0.01
-TRAINING_WINDOW_SIZE = 200
+TRAINING_WINDOW_SIZE = 700
 
 predictedLogReturnsHistory = []
 
@@ -95,10 +90,6 @@ def fitForecaster():
         series=logReturns,
         exog=exogDict
     )
-
-    print(f"Forecaster fit with last day of log returns being {logReturns["inst_0"].tail(1)}")
-    print(f"And with last day of exog being                   {exogDict["inst_0"].tail(1)}")
-    print(f"Current day exogs (Should be the next last)are    {greeksManager.getGreeksDict()["inst_0"].tail(1)}\n")
 
 def updateLogReturns():
     global logReturns
@@ -228,8 +219,8 @@ class Momentum(Greek):
         window = self.pricesSoFar[:, -self.windowSize-1:]
         log_returns = np.log(window[:, 1:] / window[:, :-1])
         momentum = np.nansum(log_returns, axis=1)
-        self.momentum = momentum
 
+        self.momentum = momentum
         self.history = np.hstack((self.history[:, 1:], momentum[:, np.newaxis]))
 
     def getGreeks(self):
@@ -277,6 +268,7 @@ class Volatility(Greek):
             vol = np.std(log_returns, axis=1, ddof=1)
 
         self.history = np.hstack((self.history[:, 1:], vol[:, np.newaxis]))
+        self.vols = vol
 
     def getGreeks(self):
         return self.vols

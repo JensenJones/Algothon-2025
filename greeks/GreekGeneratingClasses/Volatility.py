@@ -42,6 +42,7 @@ class Volatility(Greek):
             vol = np.std(log_returns, axis=1, ddof=1)
 
         self.history = np.hstack((self.history[:, 1:], vol[:, np.newaxis]))
+        self.vols = vol
 
     def getGreeks(self):
         return self.vols
