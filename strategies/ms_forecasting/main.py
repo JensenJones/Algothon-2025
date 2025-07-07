@@ -113,22 +113,15 @@ class LaggedPrices(Greek):
         super().__init__(historyWindowSize)
         self.lag = lag
         self.prices = pricesSoFar[:, (pricesSoFar.shape[1] - self.historyWindowSize - lag):]
-        print(f"Shape should be 50, 626 + lag for shape = {self.prices.shape}, lag = {lag}")
 
     def update(self, newDayPrices: np.ndarray):
         self.prices = np.hstack((self.prices, newDayPrices.reshape(-1, 1)))
         self.prices = self.prices[:, 1:]
-        print(f"Update shape = {self.prices.shape}")
 
     def getGreeks(self):
         return self.prices[:, -(self.lag + 1)]
 
     def getGreeksHistory(self):
-        # day = self.prices.shape[1]
-        # start = day - self.historyWindowSize - self.lag + 1
-        # end   = start + self.historyWindowSize
-        # return self.prices[:, start:end]
-
         return self.prices[:, :self.historyWindowSize]
 
 class Prices(Greek):
@@ -302,13 +295,13 @@ def fitForecaster():
 
     exogDict = greeksManager.getGreeksHistoryDict() # current day is already trimmed from the exogs
 
-    # assert np.isclose(
-    #     exogDict["inst_0"]["greek_lag_1"].iloc[-1],
-    #     prices[0, -2]
-    # ), (
-    #     f"Exog for lag 1 is incorrect. Got {exogDict['inst_0']['greek_lag_1'].iloc[-1]}, "
-    #     f"but expected price from 1 days ago {prices[0, -2]}"
-    # )
+    assert np.isclose(
+        exogDict["inst_0"]["greek_lag_1"].iloc[-1],
+        prices[0, -3]
+    ), (
+        f"Exog for lag 1 is incorrect. Got {exogDict['inst_0']['greek_lag_1'].iloc[-1]}, "
+        f"but expected price from 1 days ago {prices[0, -2]}"
+    )
 
     logReturnsForecaster.fit(
         series=logReturns,
