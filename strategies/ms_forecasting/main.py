@@ -23,18 +23,18 @@ class Greek:
     def getGreeksHistory(self):
         raise NotImplementedError("Must override run() in subclass")
 
-# TODO CHECK MOMENTUM
+# PROBABLY CORRECT (95%)
 class Momentum(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
         super().__init__(historyWindowSize)
         self.windowSize = windowSize
-        self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
+        self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize + 1):]
         self.history = []
 
         for startDay in range(self.historyWindowSize):
-            endDay = startDay + windowSize - 1
+            endDay = startDay + windowSize
 
-            momentum = np.log(self.pricesSoFar[:, startDay] / self.pricesSoFar[:, endDay])
+            momentum = np.log(self.pricesSoFar[:, endDay] / self.pricesSoFar[:, startDay])
 
             self.history.append(momentum)
 
@@ -45,12 +45,12 @@ class Momentum(Greek):
         self.pricesSoFar = self.pricesSoFar[:, 1:]
 
         # Calculate current momentum
-        startDay = -self.windowSize
+        startDay = -(self.windowSize + 1)
         endDay = -1
 
-        assert startDay - endDay == -self.windowSize + 1, f"Update is wrong, start = {startDay}, end = {endDay}"
+        assert startDay - endDay == -self.windowSize, f"Update is wrong, start = {startDay}, end = {endDay}"
 
-        momentum = np.log(self.pricesSoFar[:, startDay] / self.pricesSoFar[:, endDay])
+        momentum = np.log(self.pricesSoFar[:, endDay] / self.pricesSoFar[:, startDay])
 
         self.history = np.hstack((self.history[:, 1:], momentum[:, np.newaxis]))
 
@@ -60,7 +60,7 @@ class Momentum(Greek):
     def getGreeksHistory(self):
         return self.history
 
-# PROBABLY CORRECT (90%)
+# PROBABLY CORRECT (95%)
 class Volatility(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize=5):
         super().__init__(historyWindowSize)

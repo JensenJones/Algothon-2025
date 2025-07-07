@@ -6,35 +6,33 @@ class Momentum(Greek):
         super().__init__(historyWindowSize)
         self.windowSize = windowSize
         self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
-        self.momentum = np.full(pricesSoFar.shape[0], np.nan)
-
         self.history = []
-        for i in range(self.historyWindowSize):
-            start = i
-            end = i + windowSize + 1
-            window = self.pricesSoFar[:, start:end]
 
-            log_returns = np.log(window[:, 1:] / window[:, :-1])
-            momentum = np.nansum(log_returns, axis=1)
+        for startDay in range(self.historyWindowSize):
+            endDay = startDay + windowSize - 1
+
+            momentum = np.log(self.pricesSoFar[:, startDay] / self.pricesSoFar[:, endDay])
+
             self.history.append(momentum)
 
         self.history = np.stack(self.history, axis=1)  # shape: (nInst, historyWindowSize)
-        self.momentum = self.history[:, -1]
 
     def update(self, newDayPrices: np.ndarray):
         self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
         self.pricesSoFar = self.pricesSoFar[:, 1:]
 
         # Calculate current momentum
-        window = self.pricesSoFar[:, -self.windowSize-1:]
-        log_returns = np.log(window[:, 1:] / window[:, :-1])
-        momentum = np.nansum(log_returns, axis=1)
-        self.momentum = momentum
+        startDay = -self.windowSize
+        endDay = -1
+
+        assert startDay - endDay == -self.windowSize + 1, f"Update is wrong, start = {startDay}, end = {endDay}"
+
+        momentum = np.log(self.pricesSoFar[:, startDay] / self.pricesSoFar[:, endDay])
 
         self.history = np.hstack((self.history[:, 1:], momentum[:, np.newaxis]))
 
     def getGreeks(self):
-        return self.momentum
+        return self.history[:, -1]
 
     def getGreeksHistory(self):
         return self.history
