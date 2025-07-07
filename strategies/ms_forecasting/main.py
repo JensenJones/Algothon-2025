@@ -23,12 +23,12 @@ class Greek:
     def getGreeksHistory(self):
         raise NotImplementedError("Must override run() in subclass")
 
+# TODO CHECK MOMENTUM
 class Momentum(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
         super().__init__(historyWindowSize)
         self.windowSize = windowSize
         self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
-        self.momentum = np.full(pricesSoFar.shape[0], np.nan)
 
         self.history = []
         for i in range(self.historyWindowSize):
@@ -61,30 +61,28 @@ class Momentum(Greek):
     def getGreeksHistory(self):
         return self.history
 
+# PROBABLY CORRECT (90%)
 class Volatility(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize=5):
         super().__init__(historyWindowSize)
         self.windowSize = windowSize
-        self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
-        self.vols = np.full(pricesSoFar.shape[0], np.nan)
+        self.pricesSoFar = pricesSoFar[:, -(self.historyWindowSize + windowSize):]
         self.history = []
 
-        # Backfill exactly `historyWindowSize` values
         for i in range(self.historyWindowSize):
             start = i
-            end = i + self.windowSize + 1
+            end = i + windowSize + 1
             window = self.pricesSoFar[:, start:end]
 
-            if window.shape[1] <= 1:
-                vol = np.full(window.shape[0], np.nan)
-            else:
-                log_returns = np.log(window[:, 1:] / window[:, :-1])
-                vol = np.std(log_returns, axis=1, ddof=1)
+            window_logReturns = np.log(window[:, 1:] / window[:, :-1])
+
+            assert window_logReturns.shape[1] == windowSize, f"BAD CALCULATION, window size = {window_logReturns.shape}, i = {i}"
+
+            vol = np.std(window_logReturns, axis=1, ddof=1)
 
             self.history.append(vol)
 
         self.history = np.stack(self.history, axis=1)  # (nInst, historyWindowSize)
-        self.vols = self.history[:, -1]
 
     def update(self, newDayPrices: np.ndarray):
         self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
@@ -92,18 +90,16 @@ class Volatility(Greek):
 
         # Calculate and store latest volatility
         window = self.pricesSoFar[:, -self.windowSize - 1:]
+        window_logReturns = np.log(window[:, 1:] / window[:, :-1])
 
-        if window.shape[1] <= 1:
-            vol = np.full(window.shape[0], np.nan)
-        else:
-            log_returns = np.log(window[:, 1:] / window[:, :-1])
-            vol = np.std(log_returns, axis=1, ddof=1)
+        assert window_logReturns.shape[1] == self.windowSize, f"BAD CALCULATION, window size = {window_logReturns.shape}"
+
+        vol = np.std(window_logReturns, axis=1, ddof=1)
 
         self.history = np.hstack((self.history[:, 1:], vol[:, np.newaxis]))
-        self.vols = vol
 
     def getGreeks(self):
-        return self.vols
+        return self.history[:, -1]
 
     def getGreeksHistory(self):
         return np.array(self.history)
@@ -139,6 +135,7 @@ class Prices(Greek):
     def getGreeksHistory(self):
         return self.prices
 
+# TODO CHECK SKEWNESS
 class Skewness(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
         super().__init__(historyWindowSize)
@@ -244,8 +241,8 @@ firstInit = True
 logReturns: pd.DataFrame = None
 
 TRAINING_MOD = 7
-SIMPLE_THRESHOLD = 0
-TRAINING_WINDOW_SIZE = 625
+SIMPLE_THRESHOLD = 0.00
+TRAINING_WINDOW_SIZE = 600
 
 predictedLogReturnsHistory = []
 
@@ -349,8 +346,8 @@ def getPredictedLogReturns(steps) -> np.ndarray:
 
 def createGreeksManager():
     laggedPricesPrefix  = "greek_lag_"
-    momentumPrefix      = "greek_momentum_"
     volatilityPrefix    = "greek_volatility_"
+    momentumPrefix      = "greek_momentum_"
     skewnessPrefix      = "greek_skewness_"
     pricesString        = "price"
 
@@ -358,13 +355,13 @@ def createGreeksManager():
         f"{laggedPricesPrefix}{lag}": LaggedPrices(TRAINING_WINDOW_SIZE, prices, lag)
         for lag in PRICE_LAGS
     }
+    volatilityDict = {
+        f"{volatilityPrefix}{window}" : Volatility(TRAINING_WINDOW_SIZE, prices, window)
+        for window in VOL_WINDOWS
+    }
     # momentumDict = {
     #     f"{momentumPrefix}{window}" : Momentum(TRAINING_WINDOW_SIZE, prices, window)
     #     for window in MOMENTUM_WINDOWS
-    # }
-    # volatilityDict = {
-    #     f"{volatilityPrefix}{window}" : Volatility(TRAINING_WINDOW_SIZE, prices, window)
-    #     for window in VOL_WINDOWS
     # }
     # skewnessDict = {
     #     f"{skewnessPrefix}{window}" : Skewness(TRAINING_WINDOW_SIZE, prices, window)
@@ -373,7 +370,7 @@ def createGreeksManager():
 
     greeksDict = (
             laggedPricesDict  |
-            # volatilityDict   |
+            volatilityDict    |
             # momentumDict     |
             # skewnessDict     |
             {
