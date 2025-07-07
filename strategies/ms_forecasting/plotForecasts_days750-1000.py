@@ -29,6 +29,8 @@ def main():
 
     predictionAccuracyPrint(actualLogReturns, predictedLogReturns)
 
+    mse = np.mean((predictedLogReturns - actualLogReturns) ** 2)
+    print(f"Mean Squared Error = {mse:.6f}")
 
 def predictionAccuracyPrint(actualLogReturns, predictedLogReturns):
     correctPosChange = 0

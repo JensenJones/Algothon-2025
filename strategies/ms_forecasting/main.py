@@ -134,39 +134,6 @@ class Prices(Greek):
     def getGreeksHistory(self):
         return self.prices
 
-# TODO CHECK SKEWNESS
-class Skewness(Greek):
-    def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
-        super().__init__(historyWindowSize)
-        self.windowSize = windowSize
-        self.pricesSoFar = pricesSoFar[:, -(historyWindowSize + windowSize):]
-        self.history = []
-
-        for i in range(self.historyWindowSize):
-            window = self.pricesSoFar[:, i:i+windowSize+1]
-            log_returns = np.log(window[:, 1:] / window[:, :-1])
-            skew = ((log_returns - log_returns.mean(axis=1, keepdims=True))**3).mean(axis=1)
-            skew /= (np.std(log_returns, axis=1, ddof=1)**3 + 1e-9)
-            self.history.append(skew)
-
-        self.history = np.stack(self.history, axis=1)
-
-    def update(self, newDayPrices: np.ndarray):
-        self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
-        self.pricesSoFar = self.pricesSoFar[:, 1:]
-
-        window = self.pricesSoFar[:, -self.windowSize-1:]
-        log_returns = np.log(window[:, 1:] / window[:, :-1])
-        skew = ((log_returns - log_returns.mean(axis=1, keepdims=True))**3).mean(axis=1)
-        skew /= (np.std(log_returns, axis=1, ddof=1)**3 + 1e-9)
-        self.history = np.hstack((self.history[:, 1:], skew[:, None]))
-
-    def getGreeks(self):
-        return self.history[:, -1]
-
-    def getGreeksHistory(self):
-        return self.history
-
 class GreeksManager:
     def __init__(self, greeks: dict[str, Greek]):
         self.greeks = greeks
@@ -179,18 +146,21 @@ class GreeksManager:
     def getGreeksList(self):
         return self.greeks.values()
 
-    def getGreeksDict(self):
-        greeksArray = [
+    def getGreeksDict(self) -> dict[str, pd.DataFrame]:
+        greeks_list = [
             greek.getGreeks().reshape(-1, 1)
             for greek in self.greeks.values()
         ]
 
-        greeksArrayNp = np.concatenate(greeksArray, axis=-1)  # shape (TRAINING_WINDOW_SIZE, nInst, num_greeks)
+        greeksArrayNp = np.concatenate(greeks_list, axis=1)
         featureNames = list(self.greeks.keys())
 
         exogDict = {
-            f"inst_{i}": pd.DataFrame([greeksArrayNp[i, :]], columns=featureNames)
-            for i in range(greeksArrayNp.shape[0])  # iterate over instruments
+            f"inst_{i}": pd.DataFrame(
+                greeksArrayNp[i:i+1, :],
+                columns=featureNames,
+            )
+            for i in range(greeksArrayNp.shape[0])
         }
 
         return exogDict
@@ -209,26 +179,26 @@ class GreeksManager:
             for i in range(greekArrayNp.shape[1])
         }
 
-
         return exogDict
 
 warnings.simplefilter("ignore", category=MissingValuesWarning)
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
-    regressor           = HistGradientBoostingRegressor(random_state=8523, learning_rate=0.09),
+    regressor           = HistGradientBoostingRegressor(random_state=8523,
+                                                        learning_rate=0.05),
     transformer_series  = None,
     transformer_exog    = StandardScaler(),
     lags                = 7,
-    window_features     = RollingFeatures(
-                                stats           = ['min', 'max'],
-                                window_sizes    = 7,
-                            )
+    # window_features     = RollingFeatures(
+    #                             stats           = ['min', 'max'],
+    #                             window_sizes    = 7,
+    #                         ),
 )
 
-PRICE_LAGS = [1, 2, 3, 4, 5, 6, 7]
+PRICE_LAGS = [lag for lag in range(1, 8)]
 VOL_WINDOWS = [5, 10, 20]
-MOMENTUM_WINDOWS = [3, 7, 14]
-SKEWNESS_WINDOWS = [5, 10]
+MOMENTUM_WINDOWS = [3, 7, 14, 21]
+SKEWNESS_WINDOWS = [5, 10, 20]
 
 logReturnsForecaster.dropna_from_series = True
 
@@ -239,9 +209,9 @@ greeksManager: GreeksManager = None
 firstInit = True
 logReturns: pd.DataFrame = None
 
-TRAINING_MOD = 7
+TRAINING_MOD = 20
 SIMPLE_THRESHOLD = 0.00
-TRAINING_WINDOW_SIZE = 600
+TRAINING_WINDOW_SIZE = 500
 
 predictedLogReturnsHistory = []
 
@@ -286,22 +256,12 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
 def fitForecaster():
     global logReturns
 
-    # assert np.isclose(logReturns["inst_0"].iloc[-1], np.log(prices[0, -1] / prices[0, -2])), \
-        # f"TRAINING IS NOT THE SAME, recent = {logReturns["inst_0"].iloc[-1]}\nwrong is {np.log(prices[0, -1] / prices[0, -2])}"
-
     exogDict = greeksManager.getGreeksHistoryDict() # current day is already trimmed from the exogs
-
-    assert np.isclose(
-        exogDict["inst_0"]["greek_lag_1"].iloc[-1],
-        prices[0, -3]
-    ), (
-        f"Exog for lag 1 is incorrect. Got {exogDict['inst_0']['greek_lag_1'].iloc[-1]}, "
-        f"but expected price from 1 days ago {prices[0, -2]}"
-    )
 
     logReturnsForecaster.fit(
         series=logReturns,
-        exog=exogDict
+        exog=exogDict,
+        random_state=8523,
     )
 
 def updateLogReturns():
@@ -347,7 +307,6 @@ def createGreeksManager():
     laggedPricesPrefix  = "greek_lag_"
     volatilityPrefix    = "greek_volatility_"
     momentumPrefix      = "greek_momentum_"
-    skewnessPrefix      = "greek_skewness_"
     pricesString        = "price"
 
     laggedPricesDict = {
@@ -362,16 +321,11 @@ def createGreeksManager():
         f"{momentumPrefix}{window}" : Momentum(TRAINING_WINDOW_SIZE, prices, window)
         for window in MOMENTUM_WINDOWS
     }
-    # skewnessDict = {
-    #     f"{skewnessPrefix}{window}" : Skewness(TRAINING_WINDOW_SIZE, prices, window)
-    #     for window in SKEWNESS_WINDOWS
-    # }
 
     greeksDict = (
-            laggedPricesDict  |
-            volatilityDict    |
+            laggedPricesDict |
+            volatilityDict   |
             momentumDict     |
-            # skewnessDict     |
             {
                 pricesString : Prices(TRAINING_WINDOW_SIZE, prices)
             }
