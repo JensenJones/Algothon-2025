@@ -15,7 +15,7 @@ def main():
     actualLogReturns = np.log( prices[:, 1:] / prices[:, :-1] ) # (50, 249)
     print(f"Shape of actual logReturns = {actualLogReturns.shape}")
 
-    instrument = 4
+    instrument = 0
 
     plt.figure(figsize=(12, 5))
     plt.plot(predictedLogReturns[instrument, :], label="Predicted LogReturn", color='dodgerblue')
