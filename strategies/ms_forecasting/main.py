@@ -7,7 +7,9 @@ from skforecast.exceptions import MissingValuesWarning
 from skforecast.preprocessing import RollingFeatures
 from skforecast.recursive import ForecasterRecursiveMultiSeries
 from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegressor
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from sklearn.inspection import permutation_importance
+
 
 class Greek:
     def __init__(self, historyWindowSize):
@@ -137,7 +139,6 @@ class Prices(Greek):
 class GreeksManager:
     def __init__(self, greeks: dict[str, Greek]):
         self.greeks = greeks
-        self.greeksCount = len(greeks)
 
     def updateGreeks(self, newDayPrices: np.ndarray):
         for greek in self.greeks.values():
@@ -146,61 +147,65 @@ class GreeksManager:
     def getGreeksList(self):
         return self.greeks.values()
 
-    def getGreeksDict(self) -> dict[str, pd.DataFrame]:
+    def getGreeksDict(self, index: pd.Index) -> dict[str, pd.DataFrame]:
+        feature_names, greek_objs = zip(*self.greeks.items())
+
         greeks_list = [
             greek.getGreeks().reshape(-1, 1)
-            for greek in self.greeks.values()
+            for greek in greek_objs
         ]
 
-        greeksArrayNp = np.concatenate(greeks_list, axis=1)
-        featureNames = list(self.greeks.keys())
+        greeks_array = np.concatenate(greeks_list, axis=1)
 
-        exogDict = {
-            f"inst_{i}": pd.DataFrame(
-                greeksArrayNp[i:i+1, :],
-                columns=featureNames,
+        greeks_dict = {}
+        for inst_idx in range(greeks_array.shape[0]):
+            greeks_dict[f"inst_{inst_idx}"] = pd.DataFrame(
+                greeks_array[inst_idx:inst_idx+1, :],
+                index=index,
+                columns=feature_names
             )
-            for i in range(greeksArrayNp.shape[0])
-        }
 
-        return exogDict
+        return greeks_dict
 
-    def getGreeksHistoryDict(self) -> dict[str, pd.DataFrame]:
-        greekHistoryArray = [
+    def getGreeksHistoryDict(self, index: pd.Index) -> dict[str, pd.DataFrame]:
+        feature_names, greek_objs = zip(*self.greeks.items())
+
+        greek_history_list = [
             np.swapaxes(greek.getGreeksHistory(), 0, 1)[:-1, :, np.newaxis]
-            for greek in self.greeks.values()
+            for greek in greek_objs
         ]
 
-        greekArrayNp = np.concatenate(greekHistoryArray, axis=-1)  # shape (days, nInst, num_greeks)
-        featureNames = list(self.greeks.keys())
+        greek_history_array = np.concatenate(greek_history_list, axis=-1)
 
-        exogDict = {
-            f"inst_{i}": pd.DataFrame(greekArrayNp[:, i, :], columns=featureNames)
-            for i in range(greekArrayNp.shape[1])
-        }
+        greeks_history_dict = {}
+        n_instruments = greek_history_array.shape[1]
+        for inst_idx in range(n_instruments):
+            greeks_history_dict[f"inst_{inst_idx}"] = pd.DataFrame(
+                greek_history_array[:, inst_idx, :],
+                index=index,
+                columns=feature_names
+            )
 
-        return exogDict
+        return greeks_history_dict
 
-warnings.simplefilter("ignore", category=MissingValuesWarning)
+
+# TODO assure that the correct greek names line up with the correct greeks data in dict and histDict
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
     regressor           = HistGradientBoostingRegressor(random_state=8523,
                                                         learning_rate=0.05),
     transformer_series  = None,
     transformer_exog    = StandardScaler(),
-    lags                = 7,
-    # window_features     = RollingFeatures(
-    #                             stats           = ['min', 'max'],
-    #                             window_sizes    = 7,
-    #                         ),
+    lags                = 20,
+    window_features     = RollingFeatures(
+                                stats           = ['min', 'max'],
+                                window_sizes    = 10,
+                            ),
 )
 
 PRICE_LAGS = [lag for lag in range(1, 8)]
 VOL_WINDOWS = [5, 10, 20]
-MOMENTUM_WINDOWS = [3, 7, 14, 21]
-SKEWNESS_WINDOWS = [5, 10, 20]
-
-logReturnsForecaster.dropna_from_series = True
+MOMENTUM_WINDOWS = [3, 7, 14]
 
 nInst = 50
 positions = np.zeros(nInst)
@@ -208,6 +213,7 @@ prices: np.ndarray = None
 greeksManager: GreeksManager = None
 firstInit = True
 logReturns: pd.DataFrame = None
+currentDay: int = None
 
 TRAINING_MOD = 20
 SIMPLE_THRESHOLD = 0.00
@@ -216,19 +222,21 @@ TRAINING_WINDOW_SIZE = 500
 predictedLogReturnsHistory = []
 
 def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
-
-    global prices, greeksManager, firstInit
+    global prices, greeksManager, firstInit, currentDay
 
     prices = prcSoFar
     newDayPrices = prcSoFar[:, -1] # shape (50, 1)
     day = prices.shape[1]
 
-    if day < TRAINING_WINDOW_SIZE + max(PRICE_LAGS + VOL_WINDOWS + MOMENTUM_WINDOWS + SKEWNESS_WINDOWS):
+    daysCount = prices.shape[1]
+    currentDay = daysCount - 1
+
+    if day < TRAINING_WINDOW_SIZE + max(PRICE_LAGS + VOL_WINDOWS + MOMENTUM_WINDOWS):
         print(f"Shouldn't be hitting this, prcSoFar.shape = {prcSoFar.shape}")
         return positions
 
     if firstInit:
-        greeksManager = createGreeksManager()
+        greeksManager = createGreeksManager(prices)
         updateLogReturns()
         fitForecaster()
         firstInit = False
@@ -238,7 +246,6 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
 
     if day % TRAINING_MOD == 0:
         fitForecaster()
-    # TODO ################################################################################# CHECK THE GREEKS
 
     # predictedLogReturns_10steps = getPredictedLogReturns(10)
     # predictedLogReturns_10steps = predictedLogReturns_10steps.reshape(10, 50)
@@ -256,20 +263,23 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
 def fitForecaster():
     global logReturns
 
-    exogDict = greeksManager.getGreeksHistoryDict() # current day is already trimmed from the exogs
+    exogDict = greeksManager.getGreeksHistoryDict(logReturns.index) # current day is already trimmed from the exogs
 
     logReturnsForecaster.fit(
         series=logReturns,
         exog=exogDict,
-        random_state=8523,
     )
 
 def updateLogReturns():
     global logReturns
     pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
     logReturnsSoFarNp = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
-    logReturns = pd.DataFrame(logReturnsSoFarNp.T)
-    logReturns.columns = [f"inst_{i}" for i in range(logReturns.shape[1])]
+
+    index = pd.RangeIndex(start=currentDay - TRAINING_WINDOW_SIZE + 1, stop=currentDay + 1)
+
+    logReturns = pd.DataFrame(logReturnsSoFarNp.T,
+                              index = index,
+                              columns = [f"inst_{i}" for i in range(logReturnsSoFarNp.shape[0])])
 
 def updatePositions(predictedLogReturns):
     global positions
@@ -288,13 +298,17 @@ def updatePositions(predictedLogReturns):
             pass
 
 def getPredictedLogReturns(steps) -> np.ndarray:
-    exogDict = greeksManager.getGreeksDict()
+    global currentDay
+
+    futureIndex = pd.RangeIndex(start=currentDay + 1,
+                               stop=currentDay + 1 + steps)
+    exogDict = greeksManager.getGreeksDict(futureIndex)
 
     prediction = logReturnsForecaster.predict(
-        steps   = steps,
+        steps       = steps,
         last_window = logReturns.tail(max(logReturnsForecaster.lags)),
-        exog    = exogDict,
-        levels  = list(logReturns.columns),
+        exog        = exogDict,
+        levels      = list(logReturns.columns),
     )
 
     predictedLogReturns = prediction["pred"].values
@@ -303,11 +317,11 @@ def getPredictedLogReturns(steps) -> np.ndarray:
 
     return predictedLogReturns
 
-def createGreeksManager():
+def createGreeksManager(prices = prices):
     laggedPricesPrefix  = "greek_lag_"
     volatilityPrefix    = "greek_volatility_"
     momentumPrefix      = "greek_momentum_"
-    pricesString        = "price"
+    pricesString        = "greek_price"
 
     laggedPricesDict = {
         f"{laggedPricesPrefix}{lag}": LaggedPrices(TRAINING_WINDOW_SIZE, prices, lag)
@@ -333,13 +347,7 @@ def createGreeksManager():
 
     gm = GreeksManager(greeksDict)
 
-    for name, greek in gm.greeks.items():
-        histGreeks = greek.getGreeksHistory()
-        if np.isnan(histGreeks).any():
-            print(f"[DEBUG] NaN in {name} history!")
-
-        currGreeks = greek.getGreeks()
-        if np.isnan(currGreeks).any():
-            print(f"[DEBUG] NaN in {name} current greeks!")
-
     return gm
+
+def getGreeksManagerForTesting():
+    return greeksManager

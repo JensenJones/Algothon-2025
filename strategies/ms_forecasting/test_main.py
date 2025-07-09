@@ -15,8 +15,7 @@ from strategies.ms_forecasting.main import MOMENTUM_WINDOWS
 class Test(TestCase):
     # TODO check each daily getGreeksDict produces correct data ----------------- DONE
     # TODO check that getGreeksHistory produces correct data
-    # TODO Check that log returns are correctly calculated each day ------------- DONE
-    # IF THEY ARE WRONG, CHECK IF GETTING THE DATA OUT MANUALLY FROM THE DICT OF GREEK NAME TO GREEK PRODUCES THE CORRECT DATA
+    # TODO Check that log returns are correctly calculated each day
 
     gmDailyExogDicts: list[dict[str, pd.DataFrame]] = []
     actualDailyExogDicts: list[dict[str, pd.DataFrame]] = []
@@ -24,28 +23,72 @@ class Test(TestCase):
     gmDailyGetGreeksFromMemberVarNpFormat: list[dict[str, np.ndarray]] = []
     actualDailyGreeksToCompareNpFormat: list[dict[str, np.ndarray]] = []
 
-    def setUp(self):
-        super().setUp()
+    gmGreeksHistory = []
+    actualGreeksHistory = []
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
         prices = np.loadtxt("./sourceCode/1000Prices.txt").T
+        cls.prices = prices
         assert prices.shape == (50, 1000), "Shape need to be transposed"
 
         greeksManager = createGreeksManager(prices[:, :751])
-        index = pd.RangeIndex(start=750, stop=751)
-        self.gmDailyExogDicts.append(greeksManager.getGreeksDict(index))
-        self.actualDailyExogDicts.append(self.produceDayGetGreeksDictLikeGM(prices[:, :751], index))
 
-        self.gmDailyGetGreeksFromMemberVarNpFormat.append(self.getDailyGreeksFromMemberVar(greeksManager))
-        self.actualDailyGreeksToCompareNpFormat.append(self.produceDayGreeksDict(prices[:, :751]))
+        index = pd.RangeIndex(start=750, stop=751)
+        cls.gmDailyExogDicts.append(greeksManager.getGreeksDict(index))
+        cls.actualDailyExogDicts.append(cls.produceDayGetGreeksDictLikeGM(prices[:, :751], index))
+
+        cls.gmDailyGetGreeksFromMemberVarNpFormat.append(cls.getDailyGreeksFromMemberVar(greeksManager))
+        cls.actualDailyGreeksToCompareNpFormat.append(cls.produceDayGreeksDict(prices[:, :751]))
+
+        historyIndex = pd.RangeIndex(start=750 - TRAINING_WINDOW_SIZE + 1, stop=751)
+        cls.gmGreeksHistory.append(greeksManager.getGreeksHistoryDict(historyIndex))
+        cls.actualGreeksHistory.append(cls.produceGreeksHistory(prices[:, :751], historyIndex))
 
         for day in range(751, 999):
             greeksManager.updateGreeks(prices[:, day])
 
             index = pd.RangeIndex(start=day - 1, stop=day)
-            self.gmDailyExogDicts.append(greeksManager.getGreeksDict(index))
-            self.actualDailyExogDicts.append(self.produceDayGetGreeksDictLikeGM(prices[:, :day + 1], index))
+            cls.gmDailyExogDicts.append(greeksManager.getGreeksDict(index))
+            cls.actualDailyExogDicts.append(cls.produceDayGetGreeksDictLikeGM(prices[:, :day + 1], index))
 
-            self.gmDailyGetGreeksFromMemberVarNpFormat.append(self.getDailyGreeksFromMemberVar(greeksManager))
-            self.actualDailyGreeksToCompareNpFormat.append(self.produceDayGreeksDict(prices[:, :day + 1]))
+            cls.gmDailyGetGreeksFromMemberVarNpFormat.append(cls.getDailyGreeksFromMemberVar(greeksManager))
+            cls.actualDailyGreeksToCompareNpFormat.append(cls.produceDayGreeksDict(prices[:, :day + 1]))
+
+            historyIndex = pd.RangeIndex(start=day - TRAINING_WINDOW_SIZE + 1, stop=day + 1)
+            cls.gmGreeksHistory.append(greeksManager.getGreeksHistoryDict(historyIndex))
+            cls.actualGreeksHistory.append(cls.produceGreeksHistory(prices[:, :day + 1], historyIndex))
+
+    def testDailyHistoryMatchExpected(self):
+        self.assertEqual(
+            len(self.gmGreeksHistory),
+            len(self.actualGreeksHistory),
+            "Mismatch in number of days tested, fix the test class"
+        )
+
+        print(f"Price from day 250 be lookin like this homie (inst 0):\n{Test.prices[0, 250:]}")
+
+        for day_idx, (gm_dict, actual_dict) in enumerate(
+                zip(self.gmGreeksHistory, self.actualGreeksHistory),
+                start=750
+        ):
+            self.assertEqual(
+                set(gm_dict.keys()),
+                set(actual_dict.keys()),
+                msg=f"Instrument keys differ on day {day_idx}"
+            )
+
+            for inst_key in gm_dict:
+                gm_df = gm_dict[inst_key]
+                actual_df = actual_dict[inst_key]
+
+                assert_frame_equal(gm_df, actual_df,
+                                   check_dtype=True,
+                                   check_exact=True,
+                                   check_column_type=True,
+                                   check_names=True
+                                   )
 
     def testDailyExogDictsMatchExpectedWhenSkippingGreeksManagerAggregating(self):
         self.assertEqual(
@@ -84,7 +127,6 @@ class Test(TestCase):
                 zip(self.gmDailyExogDicts, self.actualDailyExogDicts),
                 start=750
         ):
-            # Keys (inst_0, inst_1, …) should be identical
             self.assertEqual(
                 set(gm_dict.keys()),
                 set(actual_dict.keys()),
@@ -103,8 +145,9 @@ class Test(TestCase):
                     check_names=True
                 )
 
-    def produceDayGetGreeksDictLikeGM(self, prices, index):
-        greeksDict = self.produceDayGreeksDict(prices)
+    @staticmethod
+    def produceDayGetGreeksDictLikeGM(prices, index):
+        greeksDict = Test.produceDayGreeksDict(prices)
 
         greekNames, greeksData = zip(*greeksDict.items())
 
@@ -145,8 +188,32 @@ class Test(TestCase):
 
         return lags | vols | moms | prices
 
-    def getDailyGreeksFromMemberVar(self, greeksManager) -> dict[str, np.ndarray]:
+    @staticmethod
+    def getDailyGreeksFromMemberVar(greeksManager) -> dict[str, np.ndarray]:
         return {
             greekName: greek.getGreeks()
             for greekName, greek in greeksManager.greeks.items()
         }
+
+    @staticmethod
+    def produceGreeksHistory(prices, index):
+        greeksPerDay = []
+        for dayIndex in range(prices.shape[1] - TRAINING_WINDOW_SIZE - 1, prices.shape[1]):
+            greeksPerDay.append(Test.produceDayGreeksDict(prices[:, :dayIndex + 1]))
+
+        greek_names = list(greeksPerDay[0].keys())
+
+        greeksPerDayNp = np.array([
+            np.swapaxes([day_dict[g] for g in greek_names], 0, 1)
+            for day_dict in greeksPerDay
+        ])
+
+        exogDict = {}
+        for inst in range(prices.shape[0]):
+            exogDict[f"inst_{inst}"] = pd.DataFrame(
+                greeksPerDayNp[:-1, inst, :],
+                columns=greek_names,
+                index=index
+            )
+
+        return exogDict
