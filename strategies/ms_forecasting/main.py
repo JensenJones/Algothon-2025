@@ -193,13 +193,15 @@ class GreeksManager:
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
     regressor           = HistGradientBoostingRegressor(random_state=8523,
-                                                        learning_rate=0.05),
+                                                        learning_rate=0.05,
+                                                        max_iter=400,
+                                                        min_samples_leaf=3),
     transformer_series  = None,
     transformer_exog    = StandardScaler(),
-    lags                = 20,
+    lags                = 50,
     window_features     = RollingFeatures(
-                                stats           = ['min', 'max'],
-                                window_sizes    = 10,
+                                stats           = ['min', 'max', 'ewm', 'std', 'mean'],
+                                window_sizes    = 50,
                             ),
 )
 
@@ -331,22 +333,22 @@ def getPredictedLogReturns(steps) -> np.ndarray:
 
     return predictedLogReturns
 
-def createGreeksManager(prices = prices):
+def createGreeksManager(prices = prices, T = TRAINING_WINDOW_SIZE):
     laggedPricesPrefix  = "greek_lag_"
     volatilityPrefix    = "greek_volatility_"
     momentumPrefix      = "greek_momentum_"
     pricesString        = "greek_price"
 
     laggedPricesDict = {
-        f"{laggedPricesPrefix}{lag}": LaggedPrices(TRAINING_WINDOW_SIZE, prices, lag)
+        f"{laggedPricesPrefix}{lag}": LaggedPrices(T, prices, lag)
         for lag in PRICE_LAGS
     }
     volatilityDict = {
-        f"{volatilityPrefix}{window}" : Volatility(TRAINING_WINDOW_SIZE, prices, window)
+        f"{volatilityPrefix}{window}" : Volatility(T, prices, window)
         for window in VOL_WINDOWS
     }
     momentumDict = {
-        f"{momentumPrefix}{window}" : Momentum(TRAINING_WINDOW_SIZE, prices, window)
+        f"{momentumPrefix}{window}" : Momentum(T, prices, window)
         for window in MOMENTUM_WINDOWS
     }
 
@@ -355,7 +357,7 @@ def createGreeksManager(prices = prices):
             volatilityDict   |
             momentumDict     |
             {
-                pricesString : Prices(TRAINING_WINDOW_SIZE, prices)
+                pricesString : Prices(T, prices)
             }
     )
 

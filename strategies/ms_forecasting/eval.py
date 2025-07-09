@@ -8,7 +8,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 import numpy as np
 import pandas as pd
 from strategies.ms_forecasting.main import getMyPosition as getPosition
-# from strategies.ms_forecasting.claude import getMyPosition as getPosition
 
 startTime = time.time()
 

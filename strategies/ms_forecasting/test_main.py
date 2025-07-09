@@ -6,6 +6,7 @@ from pandas._testing import assert_index_equal
 from pandas.testing import assert_frame_equal
 
 from strategies.ms_forecasting.main import createGreeksManager
+from strategies.ms_forecasting.main import createGreeksManager
 from strategies.ms_forecasting.main import TRAINING_WINDOW_SIZE
 from strategies.ms_forecasting.main import updateLogReturns
 from strategies.ms_forecasting.main import PRICE_LAGS
