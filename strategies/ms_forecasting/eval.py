@@ -14,8 +14,8 @@ startTime = time.time()
 
 nInst = 0
 nt = 0
-# commRate = 0.0005
-commRate = 0
+commRate = 0.0005
+# commRate = 0
 dlrPosLimit = 10000
 
 def loadPrices(fn):
