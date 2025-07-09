@@ -308,12 +308,22 @@ def getPredictedLogReturns(steps) -> np.ndarray:
                                stop=currentDay + 1 + steps)
     exogDict = greeksManager.getGreeksDict(futureIndex)
 
+    expected = np.log(prices[:, -1] / prices[:, -2])
+    actual = logReturns.iloc[-1].to_numpy()
+    np.testing.assert_array_almost_equal(
+        actual,
+        expected,
+        decimal=12,
+        err_msg="Tail of logReturns disagrees with direct calculation"
+    )
+
     prediction = logReturnsForecaster.predict(
         steps       = steps,
         last_window = logReturns.tail(max(logReturnsForecaster.lags)),
         exog        = exogDict,
         levels      = list(logReturns.columns),
     )
+
 
     predictedLogReturns = prediction["pred"].values
 
