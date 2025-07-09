@@ -237,12 +237,12 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
 
     if firstInit:
         greeksManager = createGreeksManager(prices)
-        updateLogReturns()
+        updateLogReturns(prices)
         fitForecaster()
         firstInit = False
     else:
         greeksManager.updateGreeks(newDayPrices)
-        updateLogReturns()
+        updateLogReturns(prices)
 
     if day % TRAINING_MOD == 0:
         fitForecaster()
@@ -270,8 +270,10 @@ def fitForecaster():
         exog=exogDict,
     )
 
-def updateLogReturns():
+def updateLogReturns(prices = prices):
     global logReturns
+
+    currentDay = prices.shape[1] - 1
     pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
     logReturnsSoFarNp = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
 
@@ -280,6 +282,8 @@ def updateLogReturns():
     logReturns = pd.DataFrame(logReturnsSoFarNp.T,
                               index = index,
                               columns = [f"inst_{i}" for i in range(logReturnsSoFarNp.shape[0])])
+
+    return logReturns # Added for the testing
 
 def updatePositions(predictedLogReturns):
     global positions

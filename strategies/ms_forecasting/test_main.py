@@ -2,11 +2,12 @@ from unittest import TestCase
 
 import numpy as np
 import pandas as pd
+from pandas._testing import assert_index_equal
 from pandas.testing import assert_frame_equal
 
 from strategies.ms_forecasting.main import createGreeksManager
 from strategies.ms_forecasting.main import TRAINING_WINDOW_SIZE
-from strategies.ms_forecasting.main import logReturns
+from strategies.ms_forecasting.main import updateLogReturns
 from strategies.ms_forecasting.main import PRICE_LAGS
 from strategies.ms_forecasting.main import VOL_WINDOWS
 from strategies.ms_forecasting.main import MOMENTUM_WINDOWS
@@ -32,6 +33,7 @@ class Test(TestCase):
         prices = np.loadtxt("./sourceCode/1000Prices.txt").T
         cls.prices = prices
         assert prices.shape == (50, 1000), "Shape need to be transposed"
+        cls.logReturns = []
 
         greeksManager = createGreeksManager(prices[:, :751])
 
@@ -45,6 +47,8 @@ class Test(TestCase):
         historyIndex = pd.RangeIndex(start=750 - TRAINING_WINDOW_SIZE + 1, stop=751)
         cls.gmGreeksHistory.append(greeksManager.getGreeksHistoryDict(historyIndex))
         cls.actualGreeksHistory.append(cls.produceGreeksHistory(prices[:, :751], historyIndex))
+
+        cls.logReturns.append(updateLogReturns(prices[:, :751]))
 
         for day in range(751, 999):
             greeksManager.updateGreeks(prices[:, day])
@@ -60,14 +64,52 @@ class Test(TestCase):
             cls.gmGreeksHistory.append(greeksManager.getGreeksHistoryDict(historyIndex))
             cls.actualGreeksHistory.append(cls.produceGreeksHistory(prices[:, :day + 1], historyIndex))
 
+            cls.logReturns.append(updateLogReturns(prices[:, :day + 1]))
+
+    def testLogReturnsIndexAlignment(self):
+        T = TRAINING_WINDOW_SIZE
+        for currentDay, df in enumerate(Test.logReturns, start=750):
+            # this should match exactly what updateLogReturns builds
+            expected = pd.RangeIndex(
+                start=currentDay - T + 1,
+                stop=currentDay + 1
+            )
+            with self.subTest(day=currentDay):
+                # 1) quick boolean check:
+                self.assertTrue(
+                    df.index.equals(expected),
+                    msg=f"Index mismatch on day {currentDay}: got {df.index}, expected {expected}"
+                )
+                # 2) or for a richer diff:
+                assert_index_equal(df.index, expected)
+
+    def testLogReturnsAccuracy(self):
+        prices = Test.prices
+        T = TRAINING_WINDOW_SIZE
+
+        for currentDay, logReturns in enumerate(Test.logReturns, start = 750):
+            pricesInWindow = prices[:, currentDay - T : currentDay + 1]
+            actualLogReturnsInWindowNp = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
+
+            index = pd.RangeIndex(start=currentDay - T + 1, stop=currentDay + 1)
+
+            actualLogReturnsInWindow = pd.DataFrame(actualLogReturnsInWindowNp.T,
+                                      index=index,
+                                      columns=[f"inst_{i}" for i in range(actualLogReturnsInWindowNp.shape[0])])
+
+            assert_frame_equal(logReturns, actualLogReturnsInWindow,
+                               check_dtype=True,
+                               check_exact=True,
+                               check_column_type=True,
+                               check_names=True
+                               )
+
     def testDailyHistoryMatchExpected(self):
         self.assertEqual(
             len(self.gmGreeksHistory),
             len(self.actualGreeksHistory),
             "Mismatch in number of days tested, fix the test class"
         )
-
-        print(f"Price from day 250 be lookin like this homie (inst 0):\n{Test.prices[0, 250:]}")
 
         for day_idx, (gm_dict, actual_dict) in enumerate(
                 zip(self.gmGreeksHistory, self.actualGreeksHistory),
