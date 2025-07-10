@@ -200,7 +200,7 @@ logReturnsForecaster = ForecasterRecursiveMultiSeries(
     transformer_exog    = StandardScaler(),
     lags                = 50,
     window_features     = RollingFeatures(
-                                stats           = ['min', 'max', 'ewm', 'std', 'mean'],
+                                stats           = ['min', 'max'],
                                 window_sizes    = 50,
                             ),
 )
