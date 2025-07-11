@@ -207,7 +207,7 @@ logReturnsForecaster = ForecasterRecursiveMultiSeries(
 
 PRICE_LAGS = [lag for lag in range(1, 8)]
 VOL_WINDOWS = [5, 10, 20]
-MOMENTUM_WINDOWS = [3, 7, 14]
+MOMENTUM_WINDOWS = [3, 7, 14, 20]
 
 nInst = 50
 positions = np.zeros(nInst)
@@ -279,7 +279,7 @@ def updateLogReturns(prices = prices):
     pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
     logReturnsSoFarNp = np.log(pricesInWindow[:, 1:] / pricesInWindow[:, :-1])
 
-    index = pd.RangeIndex(start=currentDay - TRAINING_WINDOW_SIZE + 1, stop=currentDay + 1)
+    index = pd.RangeIndex(start=currentDay - TRAINING_WINDOW_SIZE, stop=currentDay)
 
     logReturns = pd.DataFrame(logReturnsSoFarNp.T,
                               index = index,
@@ -306,8 +306,8 @@ def updatePositions(predictedLogReturns):
 def getPredictedLogReturns(steps) -> np.ndarray:
     global currentDay
 
-    futureIndex = pd.RangeIndex(start=currentDay + 1,
-                               stop=currentDay + 1 + steps)
+    futureIndex = pd.RangeIndex(start=currentDay,
+                               stop=currentDay + steps)
     exogDict = greeksManager.getGreeksDict(futureIndex)
 
     expected = np.log(prices[:, -1] / prices[:, -2])
