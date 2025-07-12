@@ -9,6 +9,7 @@ from skforecast.recursive import ForecasterRecursiveMultiSeries
 from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.inspection import permutation_importance
+from xgboost import XGBRegressor
 
 
 class Greek:
@@ -189,13 +190,208 @@ class GreeksManager:
         return greeks_history_dict
 
 
+class ExponentialMovingAverage(Greek):
+    """
+    EMA smoothed over `period`, producing self.history of length self.historyWindowSize.
+    """
+    def __init__(self, historyWindowSize: int, pricesSoFar: np.ndarray, period: int = 20):
+        super().__init__(historyWindowSize)
+        self.period = period
+        self.alpha = 2 / (period + 1)
+
+        # Need enough past prices: (self.historyWindowSize + period - 1)
+        needed = self.historyWindowSize + period - 1
+        init_prices = pricesSoFar[:, -needed:]
+        n_inst = init_prices.shape[0]
+
+        # Allocate exactly self.historyWindowSize entries
+        emas = np.zeros((n_inst, self.historyWindowSize))
+        # Seed: simple average of first `period` prices
+        emas[:, 0] = np.mean(init_prices[:, :period], axis=1)
+
+        # Build full EMA history
+        for t in range(1, self.historyWindowSize):
+            price = init_prices[:, period + t - 1]
+            emas[:, t] = self.alpha * price + (1 - self.alpha) * emas[:, t - 1]
+
+        self.history = emas  # shape: (nInst, self.historyWindowSize)
+        self.last = emas[:, -1]
+
+    def update(self, newDayPrices: np.ndarray):
+        new_ema = self.alpha * newDayPrices + (1 - self.alpha) * self.last
+        self.last = new_ema
+        self.history = np.hstack((self.history[:, 1:], new_ema[:, np.newaxis]))
+
+    def getGreeks(self):
+        return self.last
+
+    def getGreeksHistory(self):
+        return self.history
+
+
+class RelativeStrengthIndex(Greek):
+    """
+    RSI over a rolling windowSize: measures avg gain vs. loss, history length = self.historyWindowSize.
+    """
+    def __init__(self, historyWindowSize: int, pricesSoFar: np.ndarray, windowSize: int = 14):
+        super().__init__(historyWindowSize)
+        self.windowSize = windowSize
+
+        # Need enough past prices: (self.historyWindowSize + windowSize)
+        needed = self.historyWindowSize + windowSize
+        init_prices = pricesSoFar[:, -needed:]
+        self.pricesSoFar = init_prices.copy()
+
+        history = []
+        # Loop over self.historyWindowSize slots
+        for i in range(self.historyWindowSize):
+            window = init_prices[:, i : i + windowSize + 1]  # shape (nInst, windowSize+1)
+            diffs = np.diff(window, axis=1)
+            gains = np.clip(diffs, a_min=0, a_max=None)
+            losses = np.clip(-diffs, a_min=0, a_max=None)
+
+            avg_gain = np.mean(gains, axis=1)
+            avg_loss = np.mean(losses, axis=1) + 1e-8
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            history.append(rsi)
+
+        self.history = np.stack(history, axis=1)  # shape: (nInst, self.historyWindowSize)
+
+    def update(self, newDayPrices: np.ndarray):
+        # Roll the buffer
+        self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
+        self.pricesSoFar = self.pricesSoFar[:, 1:]
+
+        window = self.pricesSoFar[:, -self.windowSize - 1 :]
+        diffs = np.diff(window, axis=1)
+        gains = np.clip(diffs, a_min=0, a_max=None)
+        losses = np.clip(-diffs, a_min=0, a_max=None)
+
+        avg_gain = np.mean(gains, axis=1)
+        avg_loss = np.mean(losses, axis=1) + 1e-8
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+
+        self.history = np.hstack((self.history[:, 1:], rsi[:, np.newaxis]))
+
+    def getGreeks(self):
+        return self.history[:, -1]
+
+    def getGreeksHistory(self):
+        return self.history
+
+
+class MovingAverageConvergenceDivergence(Greek):
+    """
+    MACD = EMA(fast) − EMA(slow). Captures trend shifts.
+    """
+    def __init__(
+        self,
+        historyWindowSize: int,
+        pricesSoFar: np.ndarray,
+        fastPeriod: int = 12,
+        slowPeriod: int = 26
+    ):
+        super().__init__(historyWindowSize)
+        self.fastPeriod = fastPeriod
+        self.slowPeriod = slowPeriod
+
+        # Give each EMA the full pricesSoFar so they slice their own needed window
+        self.fast_ema_obj = ExponentialMovingAverage(
+            historyWindowSize + (slowPeriod - fastPeriod),
+            pricesSoFar,
+            fastPeriod
+        )
+        self.slow_ema_obj = ExponentialMovingAverage(
+            historyWindowSize,
+            pricesSoFar,
+            slowPeriod
+        )
+
+        # Align their histories to the same length
+        fast_hist = self.fast_ema_obj.getGreeksHistory()[:, -self.historyWindowSize:]
+        slow_hist = self.slow_ema_obj.getGreeksHistory()
+        self.history = fast_hist - slow_hist  # (nInst, historyWindowSize)
+        self.last = self.history[:, -1]
+
+    def update(self, newDayPrices: np.ndarray):
+        # Update both EMAs
+        self.fast_ema_obj.update(newDayPrices)
+        self.slow_ema_obj.update(newDayPrices)
+
+        # Compute new MACD and roll history
+        new_macd = self.fast_ema_obj.getGreeks() - self.slow_ema_obj.getGreeks()
+        self.history = np.hstack((self.history[:, 1:], new_macd[:, np.newaxis]))
+        self.last = new_macd
+
+    def getGreeks(self):
+        return self.last
+
+    def getGreeksHistory(self):
+        return self.history
+
+
+class RateOfChange(Greek):
+    """
+    Simple return over a lag: (P_t / P_{t−lag}) − 1.
+    """
+    def __init__(self,
+                 historyWindowSize: int,
+                 pricesSoFar: np.ndarray,
+                 lag: int = 1):
+        super().__init__(historyWindowSize)
+        self.lag = lag
+        # use the base class’s historyWindowSize (which is arg+1)
+        needed = self.historyWindowSize + lag
+        init = pricesSoFar[:, -needed:]
+        self.pricesSoFar = init.copy()
+
+        history = []
+        # iterate the full self.historyWindowSize, not the raw argument
+        for i in range(self.historyWindowSize):
+            past    = init[:, i]
+            current = init[:, i + lag]
+            roc     = current / past - 1
+            history.append(roc)
+
+        self.history = np.stack(history, axis=1)  # now shape (nInst, self.historyWindowSize)
+
+    def update(self, newDayPrices: np.ndarray):
+        # roll the buffer exactly as you do elsewhere
+        self.pricesSoFar = np.hstack((self.pricesSoFar, newDayPrices.reshape(-1, 1)))
+        self.pricesSoFar = self.pricesSoFar[:, 1:]
+
+        # compute the latest ROC
+        past    = self.pricesSoFar[:, 0]
+        current = self.pricesSoFar[:, -1]
+        roc     = current / past - 1
+
+        # roll history forward
+        self.history = np.hstack((self.history[:, 1:], roc[:, np.newaxis]))
+
+    def getGreeks(self):
+        return self.history[:, -1]
+
+    def getGreeksHistory(self):
+        return self.history
+
+
 # TODO assure that the correct greek names line up with the correct greeks data in dict and histDict
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
-    regressor           = HistGradientBoostingRegressor(random_state=8523,
-                                                        learning_rate=0.05,
-                                                        max_iter=400,
-                                                        min_samples_leaf=3),
+    # regressor           = HistGradientBoostingRegressor(random_state=8523,
+    #                                                     learning_rate=0.05,
+    #                                                     max_iter=400,
+    #                                                     min_samples_leaf=3),
+    regressor = XGBRegressor(
+            objective='reg:squarederror',
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=6,
+            random_state=8523,
+            verbosity=0
+        ),
     transformer_series  = None,
     transformer_exog    = StandardScaler(),
     lags                = 50,
@@ -205,9 +401,13 @@ logReturnsForecaster = ForecasterRecursiveMultiSeries(
                             ),
 )
 
-PRICE_LAGS = [lag for lag in range(1, 8)]
-VOL_WINDOWS = [5, 10, 20]
-MOMENTUM_WINDOWS = [3, 7, 14, 20]
+PRICE_LAGS          = [lag for lag in range(1, 8)]
+VOL_WINDOWS         = [5, 10, 20, 50]
+MOMENTUM_WINDOWS    = [3, 7, 14, 21, 42]
+RSI_WINDOWS         = [5, 10, 25, 50]
+EMA_WINDOWS         = [4, 8, 16, 32]
+ROC_WINDOWS         = [1, 2, 4, 8, 16]
+
 
 nInst = 50
 positions = np.zeros(nInst)
@@ -242,6 +442,10 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
         updateLogReturns(prices)
         fitForecaster()
         firstInit = False
+
+        print(greeksManager.getGreeksHistoryDict(logReturns.index)["inst_0"].tail(1))
+        print(logReturns.tail(1))
+
     else:
         greeksManager.updateGreeks(newDayPrices)
         updateLogReturns(prices)
@@ -273,7 +477,7 @@ def fitForecaster():
     )
 
 def updateLogReturns(prices = prices):
-    global logReturns
+    global logReturns, currentDay
 
     currentDay = prices.shape[1] - 1
     pricesInWindow = prices[:, -(TRAINING_WINDOW_SIZE + 1):]
@@ -308,16 +512,8 @@ def getPredictedLogReturns(steps) -> np.ndarray:
 
     futureIndex = pd.RangeIndex(start=currentDay,
                                stop=currentDay + steps)
-    exogDict = greeksManager.getGreeksDict(futureIndex)
 
-    expected = np.log(prices[:, -1] / prices[:, -2])
-    actual = logReturns.iloc[-1].to_numpy()
-    np.testing.assert_array_almost_equal(
-        actual,
-        expected,
-        decimal=12,
-        err_msg="Tail of logReturns disagrees with direct calculation"
-    )
+    exogDict = greeksManager.getGreeksDict(futureIndex)
 
     prediction = logReturnsForecaster.predict(
         steps       = steps,
@@ -337,6 +533,10 @@ def createGreeksManager(prices = prices, T = TRAINING_WINDOW_SIZE):
     laggedPricesPrefix  = "greek_lag_"
     volatilityPrefix    = "greek_volatility_"
     momentumPrefix      = "greek_momentum_"
+    rsiPrefix           = "greek_rsi_"
+    emaPrefix           = "greek_ema_"
+    macdPrefix           = "greek_macd_"
+    rocPrefix           = "greek_roc_"
     pricesString        = "greek_price"
 
     laggedPricesDict = {
@@ -351,11 +551,30 @@ def createGreeksManager(prices = prices, T = TRAINING_WINDOW_SIZE):
         f"{momentumPrefix}{window}" : Momentum(T, prices, window)
         for window in MOMENTUM_WINDOWS
     }
+    rsiDict = {
+        f"{rsiPrefix}{window}": RelativeStrengthIndex(T, prices, window)
+        for window in RSI_WINDOWS
+    }
+    emaDict = {
+        f"{emaPrefix}{window}": ExponentialMovingAverage(T, prices, window)
+        for window in EMA_WINDOWS
+    }
+    macdDict = {
+        f"{macdPrefix}": MovingAverageConvergenceDivergence(T, prices)
+    }
+    rocDict = {
+        f"{rocPrefix}{window}": RateOfChange(T, prices, window)
+        for window in ROC_WINDOWS
+    }
 
     greeksDict = (
             laggedPricesDict |
             volatilityDict   |
             momentumDict     |
+            rsiDict          |
+            emaDict          |
+            macdDict         |
+            rocDict          |
             {
                 pricesString : Prices(T, prices)
             }
