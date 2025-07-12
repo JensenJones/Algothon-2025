@@ -26,6 +26,7 @@ class Greek:
     def getGreeksHistory(self):
         raise NotImplementedError("Must override run() in subclass")
 
+
 # PROBABLY CORRECT (95%)
 class Momentum(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, windowSize: int):
@@ -62,6 +63,7 @@ class Momentum(Greek):
 
     def getGreeksHistory(self):
         return self.history
+
 
 # PROBABLY CORRECT (95%)
 class Volatility(Greek):
@@ -106,6 +108,7 @@ class Volatility(Greek):
     def getGreeksHistory(self):
         return self.history
 
+
 class LaggedPrices(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray, lag: int):
         super().__init__(historyWindowSize)
@@ -122,6 +125,7 @@ class LaggedPrices(Greek):
     def getGreeksHistory(self):
         return self.prices[:, :self.historyWindowSize]
 
+
 class Prices(Greek):
     def __init__(self, historyWindowSize, pricesSoFar: np.ndarray):
         super().__init__(historyWindowSize)
@@ -136,58 +140,6 @@ class Prices(Greek):
 
     def getGreeksHistory(self):
         return self.prices
-
-class GreeksManager:
-    def __init__(self, greeks: dict[str, Greek]):
-        self.greeks = greeks
-
-    def updateGreeks(self, newDayPrices: np.ndarray):
-        for greek in self.greeks.values():
-            greek.update(newDayPrices)
-
-    def getGreeksList(self):
-        return self.greeks.values()
-
-    def getGreeksDict(self, index: pd.Index) -> dict[str, pd.DataFrame]:
-        feature_names, greek_objs = zip(*self.greeks.items())
-
-        greeks_list = [
-            greek.getGreeks().reshape(-1, 1)
-            for greek in greek_objs
-        ]
-
-        greeks_array = np.concatenate(greeks_list, axis=1)
-
-        greeks_dict = {}
-        for inst_idx in range(greeks_array.shape[0]):
-            greeks_dict[f"inst_{inst_idx}"] = pd.DataFrame(
-                greeks_array[inst_idx:inst_idx+1, :],
-                index=index,
-                columns=feature_names
-            )
-
-        return greeks_dict
-
-    def getGreeksHistoryDict(self, index: pd.Index) -> dict[str, pd.DataFrame]:
-        feature_names, greek_objs = zip(*self.greeks.items())
-
-        greek_history_list = [
-            np.swapaxes(greek.getGreeksHistory(), 0, 1)[:-1, :, np.newaxis]
-            for greek in greek_objs
-        ]
-
-        greek_history_array = np.concatenate(greek_history_list, axis=-1)
-
-        greeks_history_dict = {}
-        n_instruments = greek_history_array.shape[1]
-        for inst_idx in range(n_instruments):
-            greeks_history_dict[f"inst_{inst_idx}"] = pd.DataFrame(
-                greek_history_array[:, inst_idx, :],
-                index=index,
-                columns=feature_names
-            )
-
-        return greeks_history_dict
 
 
 class ExponentialMovingAverage(Greek):
@@ -377,6 +329,59 @@ class RateOfChange(Greek):
         return self.history
 
 
+class GreeksManager:
+    def __init__(self, greeks: dict[str, Greek]):
+        self.greeks = greeks
+
+    def updateGreeks(self, newDayPrices: np.ndarray):
+        for greek in self.greeks.values():
+            greek.update(newDayPrices)
+
+    def getGreeksList(self):
+        return self.greeks.values()
+
+    def getGreeksDict(self, index: pd.Index) -> dict[str, pd.DataFrame]:
+        feature_names, greek_objs = zip(*self.greeks.items())
+
+        greeks_list = [
+            greek.getGreeks().reshape(-1, 1)
+            for greek in greek_objs
+        ]
+
+        greeks_array = np.concatenate(greeks_list, axis=1)
+
+        greeks_dict = {}
+        for inst_idx in range(greeks_array.shape[0]):
+            greeks_dict[f"inst_{inst_idx}"] = pd.DataFrame(
+                greeks_array[inst_idx:inst_idx+1, :],
+                index=index,
+                columns=feature_names
+            )
+
+        return greeks_dict
+
+    def getGreeksHistoryDict(self, index: pd.Index) -> dict[str, pd.DataFrame]:
+        feature_names, greek_objs = zip(*self.greeks.items())
+
+        greek_history_list = [
+            np.swapaxes(greek.getGreeksHistory(), 0, 1)[:-1, :, np.newaxis]
+            for greek in greek_objs
+        ]
+
+        greek_history_array = np.concatenate(greek_history_list, axis=-1)
+
+        greeks_history_dict = {}
+        n_instruments = greek_history_array.shape[1]
+        for inst_idx in range(n_instruments):
+            greeks_history_dict[f"inst_{inst_idx}"] = pd.DataFrame(
+                greek_history_array[:, inst_idx, :],
+                index=index,
+                columns=feature_names
+            )
+
+        return greeks_history_dict
+
+
 # TODO assure that the correct greek names line up with the correct greeks data in dict and histDict
 
 logReturnsForecaster = ForecasterRecursiveMultiSeries(
@@ -394,19 +399,15 @@ logReturnsForecaster = ForecasterRecursiveMultiSeries(
         ),
     transformer_series  = None,
     transformer_exog    = StandardScaler(),
-    lags                = 50,
+    lags                = 100,
     window_features     = RollingFeatures(
                                 stats           = ['min', 'max'],
-                                window_sizes    = 50,
+                                window_sizes    = 100,
                             ),
 )
 
-PRICE_LAGS          = [lag for lag in range(1, 8)]
-VOL_WINDOWS         = [5, 10, 20, 50]
-MOMENTUM_WINDOWS    = [3, 7, 14, 21, 42]
-RSI_WINDOWS         = [5, 10, 25, 50]
-EMA_WINDOWS         = [4, 8, 16, 32]
-ROC_WINDOWS         = [1, 2, 4, 8, 16]
+PRICE_LAGS   = [lag for lag in range(1, 8)]
+WINDOW_SIZES = [2, 5, 10, 15, 20, 30, 40, 50, 75, 100]
 
 
 nInst = 50
@@ -433,7 +434,7 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
     daysCount = prices.shape[1]
     currentDay = daysCount - 1
 
-    if day < TRAINING_WINDOW_SIZE + max(PRICE_LAGS + VOL_WINDOWS + MOMENTUM_WINDOWS):
+    if day < TRAINING_WINDOW_SIZE + max(PRICE_LAGS + WINDOW_SIZES):
         print(f"Shouldn't be hitting this, prcSoFar.shape = {prcSoFar.shape}")
         return positions
 
@@ -442,9 +443,6 @@ def getMyPosition(prcSoFar: np.ndarray): # This is the function that they call
         updateLogReturns(prices)
         fitForecaster()
         firstInit = False
-
-        print(greeksManager.getGreeksHistoryDict(logReturns.index)["inst_0"].tail(1))
-        print(logReturns.tail(1))
 
     else:
         greeksManager.updateGreeks(newDayPrices)
@@ -545,26 +543,26 @@ def createGreeksManager(prices = prices, T = TRAINING_WINDOW_SIZE):
     }
     volatilityDict = {
         f"{volatilityPrefix}{window}" : Volatility(T, prices, window)
-        for window in VOL_WINDOWS
+        for window in WINDOW_SIZES
     }
     momentumDict = {
         f"{momentumPrefix}{window}" : Momentum(T, prices, window)
-        for window in MOMENTUM_WINDOWS
+        for window in WINDOW_SIZES
     }
     rsiDict = {
         f"{rsiPrefix}{window}": RelativeStrengthIndex(T, prices, window)
-        for window in RSI_WINDOWS
+        for window in WINDOW_SIZES
     }
     emaDict = {
         f"{emaPrefix}{window}": ExponentialMovingAverage(T, prices, window)
-        for window in EMA_WINDOWS
+        for window in WINDOW_SIZES
     }
     macdDict = {
         f"{macdPrefix}": MovingAverageConvergenceDivergence(T, prices)
     }
     rocDict = {
         f"{rocPrefix}{window}": RateOfChange(T, prices, window)
-        for window in ROC_WINDOWS
+        for window in WINDOW_SIZES
     }
 
     greeksDict = (
