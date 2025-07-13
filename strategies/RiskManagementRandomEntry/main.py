@@ -34,49 +34,55 @@ class ATR:
         """
         return self.atr
 
-nInst = 50
-window_size = 10
-sl_atr_ratio = 3
+nInst           = 50
+window_size     = 10
+momentum_window = 5
+sl_atr_ratio    = 2
+
+LONG  = 2
+SHORT = 1
 
 isInit = True
 atrCalc: ATR = None
 prices = np.zeros(nInst)
 currentPos = np.zeros(nInst)
-openPositions = np.zeros(nInst)
+openPositionDirections = np.zeros(nInst)
 stopLosses = np.zeros(nInst)
 
 
-def generateNewSignalDirection(size: int = nInst) -> np.ndarray:
-    return np.random.choice([1, 2], size=size)
+def generateNewSignalDirections(size: int = nInst) -> np.ndarray:
+    return np.random.choice([SHORT, LONG], size=size)
 
 
 def activateStopLosses(currentPos: np.ndarray):
-    mask = ((currentPos > 0) & (prices < stopLosses)) | ((currentPos < 0) & (prices > stopLosses))
+    mask = ((openPositionDirections == LONG) & (prices < stopLosses)) | ((openPositionDirections == SHORT) & (prices > stopLosses))
 
     currentPos[mask] = 0
-    openPositions[mask] = 0
+    openPositionDirections[mask] = 0
 
     return currentPos
 
 
-def placeNewTrades(currentPos: np.ndarray):
+def placeNewTrades(currentPos: np.ndarray, prcSoFar):
     newMask = (currentPos == 0)
-    signals = generateNewSignalDirection(nInst)
+    signals = generateNewSignalDirections(nInst)
 
-    openPositions[newMask] = signals[newMask]
+    openPositionDirections[newMask] = signals[newMask]
 
     currentPos[newMask] = np.where(signals[newMask] == 1, -9999, 9999)
 
-    factors = np.where(signals == 1, 1 + 0.01, 1 - 0.01)
-    stopLosses[newMask] = prices[newMask] * factors[newMask]
+    sltr = sl_atr_ratio * atrCalc.getAtr()
+    stopLosses[newMask & (signals == LONG)] = prices[newMask & (signals == LONG)] - sltr[newMask & (signals == LONG)]
+    stopLosses[newMask & (signals == SHORT)] = prices[newMask & (signals == SHORT)] + sltr[newMask & (signals == SHORT)]
 
-    return currentPos
+    return currentPos, newMask
 
 
-def updateStopLosses(currentPos: np.ndarray, atr: np.ndarray):
+def updateStopLosses(currentPos: np.ndarray, atr: np.ndarray, needsUpdatingMask: np.ndarray):
     sltr = sl_atr_ratio * atr
-    longMask = currentPos == 2
-    shortMask = currentPos == 1
+
+    longMask = (currentPos == LONG) & needsUpdatingMask
+    shortMask = (currentPos == SHORT) & needsUpdatingMask
 
     stopLosses[longMask] = np.maximum(
         stopLosses[longMask],
@@ -89,7 +95,7 @@ def updateStopLosses(currentPos: np.ndarray, atr: np.ndarray):
 
 
 def getMyPosition(prcSoFar):
-    global isInit, atrCalc, prices
+    global isInit, atrCalc, prices, currentPos
 
     day = prcSoFar.shape[1]
 
@@ -105,8 +111,8 @@ def getMyPosition(prcSoFar):
 
     atr = atrCalc.getAtr()
 
-    activateStopLosses(currentPos)
-    placeNewTrades(currentPos)
-    updateStopLosses(currentPos, atr)
+    currentPos = activateStopLosses(currentPos)
+    currentPos, newTradesMask = placeNewTrades(currentPos, prcSoFar)
+    updateStopLosses(currentPos, atr, ~newTradesMask)
 
     return currentPos
