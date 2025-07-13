@@ -1,4 +1,3 @@
-
 import numpy as np
 
 ##### TODO #########################################
@@ -7,6 +6,7 @@ import numpy as np
 
 nInst = 50
 currentPos = np.zeros(nInst)
+
 
 
 def getMyPosition(prcSoFar):
